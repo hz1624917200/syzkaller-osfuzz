@@ -130,7 +130,8 @@ var archConfigs = map[string]*archConfig{
 		// Initialization of device e1000e failed: failed to find romfile "efi-e1000e.rom
 		// But other arches don't use e1000e, e.g. arm64 uses virtio by default.
 		NetDev: "e1000",
-		RngDev: "virtio-rng-pci",
+		RngDev: "",
+		// RngDev: "virtio-rng-pci",
 		CmdLine: []string{
 			"root=/dev/sda",
 			"console=ttyS0",
@@ -639,11 +640,21 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (
 	<-chan []byte, <-chan error, error) {
-	rpipe, wpipe, err := osutil.LongPipe()
+
+	// Listening on remote dmesg (for blackbox fuzzing only)
+	argsDmesg := append(vmimpl.SSHArgs(inst.debug, inst.sshkey, inst.port), inst.sshuser+"@localhost")
+	dmesg, err := vmimpl.OpenRemoteConsole("ssh", argsDmesg...)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	rpipe, wpipe, err := osutil.LongPipe()
+	if err != nil {
+		dmesg.Close()
+		return nil, nil, err
+	}
 	inst.merger.Add("ssh", rpipe)
+	inst.merger.Add("dmesg", dmesg)
 
 	sshArgs := vmimpl.SSHArgsForward(inst.debug, inst.sshkey, inst.port, inst.forwardPort)
 	args := strings.Split(command, " ")
