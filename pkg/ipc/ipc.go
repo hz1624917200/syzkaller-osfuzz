@@ -588,6 +588,7 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	}
 	defer wp.Close()
 
+	// TODO: why not merging the inrp and the outwp?
 	// executor->ipc command pipe.
 	inrp, inwp, err := os.Pipe()
 	if err != nil {
@@ -606,7 +607,7 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 
 	c.readDone = make(chan []byte, 1)
 
-	cmd := osutil.Command(bin[0], bin[1:]...)
+	cmd := osutil.Command(bin[0], bin[1:]...) // bin: executor binary + "exec"
 	if inFile != nil && outFile != nil {
 		cmd.ExtraFiles = []*os.File{inFile, outFile}
 	}
@@ -629,7 +630,7 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 				n, err := rp.Read(output[size:])
 				if n > 0 {
 					size += uint64(n)
-					if size >= bufSize*3/4 {
+					if size >= bufSize*3/4 { // truncate the previous output (or current if it's too large)
 						copy(output, output[size-bufSize/2:size])
 						size = bufSize / 2
 					}

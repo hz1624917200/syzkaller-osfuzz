@@ -17,6 +17,7 @@ import (
 //
 // Use as defer tool.Init()().
 func Init() func() {
+	// Profiling enable, default disabled
 	flagCPUProfile := flag.String("cpuprofile", "", "write CPU profile to this file")
 	flagMEMProfile := flag.String("memprofile", "", "write memory profile to this file")
 	if err := ParseFlags(flag.CommandLine, os.Args[1:]); err != nil {

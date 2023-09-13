@@ -67,7 +67,7 @@ func (p *Prog) SerializeForExec(buffer []byte) (int, error) {
 	p.debugValidate()
 	w := &execContext{
 		target: p.Target,
-		buf:    buffer,
+		buf:    buffer, // buffer left
 		eof:    false,
 		args:   make(map[Arg]argInfo),
 	}

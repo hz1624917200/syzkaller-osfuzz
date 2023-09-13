@@ -11,7 +11,7 @@ import (
 // Limitation of concurrency window means that if a very old activity is still
 // running it will not let new activities to start even if concurrency level is low.
 type Gate struct {
-	cv      *sync.Cond
+	cv      *sync.Cond // condition variable
 	busy    []bool
 	pos     int
 	running int

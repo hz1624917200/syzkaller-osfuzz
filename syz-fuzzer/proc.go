@@ -66,14 +66,14 @@ func (proc *Proc) loop() {
 		// because fallback signal is weak.
 		generatePeriod = 2
 	}
-	for i := 0; ; i++ {
-		item := proc.fuzzer.workQueue.dequeue()
+	for i := 0; ; i++ { // infinite loop
+		item := proc.fuzzer.workQueue.dequeue() // fetch work from the queue
 		if item != nil {
 			switch item := item.(type) {
 			case *WorkTriage:
-				proc.triageInput(item)
+				proc.triageInput(item) // classify the inputs
 			case *WorkCandidate:
-				proc.execute(proc.execOpts, item.p, item.flags, StatCandidate)
+				proc.execute(proc.execOpts, item.p, item.flags, StatCandidate) // **Main Execution**
 			case *WorkSmash:
 				proc.smashInput(item)
 			default:
@@ -81,7 +81,7 @@ func (proc *Proc) loop() {
 			}
 			continue
 		}
-
+		// no item in work queue
 		ct := proc.fuzzer.choiceTable
 		fuzzerSnapshot := proc.fuzzer.snapshot()
 		if len(fuzzerSnapshot.corpus) == 0 || i%generatePeriod == 0 {
@@ -273,7 +273,7 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 	// Note: triage input uses executeRaw to get coverage.
 	info.Cover = nil
 	proc.fuzzer.workQueue.enqueue(&WorkTriage{
-		p:     p.Clone(),
+		p:     p.Clone(), // clone a program for next execution
 		call:  callIndex,
 		info:  info,
 		flags: flags,
@@ -320,12 +320,12 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Limit concurrency window and do leak checking once in a while.
 	ticket := proc.fuzzer.gate.Enter()
-	defer proc.fuzzer.gate.Leave(ticket)
+	defer proc.fuzzer.gate.Leave(ticket) // TODO: why leave here rather than after exection?
 
 	proc.logProgram(opts, p)
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
-		output, info, hanged, err := proc.env.Exec(opts, p)
+		output, info, hanged, err := proc.env.Exec(opts, p) // main executing
 		if err != nil {
 			if err == prog.ErrExecBufferTooSmall {
 				// It's bad if we systematically fail to serialize programs,

@@ -74,7 +74,7 @@ type FuzzerSnapshot struct {
 	sumPrios    int64
 }
 
-type Stat int
+type Stat int // fuzzer status
 
 const (
 	StatGenerate Stat = iota
@@ -103,7 +103,7 @@ var statNames = [StatCount]string{
 	StatBufferTooSmall: "buffer too small",
 }
 
-type OutputType int
+type OutputType int // TODO: what is this?
 
 const (
 	OutputNone OutputType = iota
@@ -284,6 +284,7 @@ func main() {
 	gateCallback := fuzzer.useBugFrames(r, *flagProcs)
 	fuzzer.gate = ipc.NewGate(2**flagProcs, gateCallback)
 
+	// poll from the manager to get corpus
 	for needCandidates, more := true, true; more; needCandidates = false {
 		more = fuzzer.poll(needCandidates, nil)
 		// This loop lead to "no output" in qemu emulation, tell manager we are not dead.
@@ -307,7 +308,7 @@ func main() {
 			log.SyzFatalf("failed to create proc: %v", err)
 		}
 		fuzzer.procs = append(fuzzer.procs, proc)
-		go proc.loop()
+		go proc.loop() // add proc's loop routine to workqueue
 	}
 
 	fuzzer.pollLoop()
