@@ -83,9 +83,27 @@ func (env *testEnv) Test(numVMs int, reproSyz, reproOpts, reproC []byte) ([]inst
 		return ret, nil
 	}
 	var ret []instance.EnvTestResult
+
+	fixed := false
+	if env.test.fixCommit != "" {
+		commit, err := env.r.GetCommitByTitle(env.test.fixCommit)
+		if err != nil {
+			return ret, err
+		}
+		fixed = commit != nil
+	}
+
+	introduced := true
+	if env.test.introduced != "" {
+		commit, err := env.r.GetCommitByTitle(env.test.introduced)
+		if err != nil {
+			return ret, err
+		}
+		introduced = commit != nil
+	}
+
 	if (env.config == "baseline-repro" || env.config == "new-minimized-config" || env.config == "original config") &&
-		(!env.test.fix && commit >= env.test.culprit || env.test.fix &&
-			commit < env.test.culprit) {
+		introduced && !fixed {
 		if env.test.flaky {
 			ret = crashErrors(1, numVMs-1, "crash occurs", env.test.reportType)
 		} else {
@@ -138,6 +156,15 @@ func createTestRepo(t *testing.T) string {
 				com := repo.CommitChange("650")
 				repo.Git("checkout", "master")
 				repo.Git("merge", "-m", "700", com.Hash)
+			} else if rv == 8 && i == 4 {
+				// Let's construct a more elaborate case. See #4117.
+				// We branch off at 700 and merge it into 804.
+				repo.Git("checkout", "v7.0")
+				repo.CommitChange("790")
+				repo.CommitChange("791")
+				com := repo.CommitChange("792")
+				repo.Git("checkout", "master")
+				repo.Git("merge", "-m", "804", com.Hash)
 			} else {
 				repo.CommitChange(fmt.Sprintf("%v", rv*100+i))
 			}
@@ -146,7 +173,8 @@ func createTestRepo(t *testing.T) string {
 			}
 		}
 	}
-	// Emulate another tree, that's needed for cross-tree tests.
+	// Emulate another tree, that's needed for cross-tree tests and
+	// for cause bisections for commits not reachable from master.
 	repo.Git("checkout", "v8.0")
 	repo.Git("checkout", "-b", "v8-branch")
 	repo.CommitFileChange("850", "v8-branch")
@@ -221,7 +249,7 @@ func testBisection(t *testing.T, baseDir string, test BisectionTest) {
 
 	res, err := runImpl(cfg, r, inst)
 	checkBisectionError(test, res, err)
-	if !test.crossTree {
+	if !test.crossTree && !test.noFakeHashTest {
 		// Should be mitigated via GetCommitByTitle during bisection.
 		cfg.Kernel.Commit = fmt.Sprintf("fake-hash-for-%v-%v", cfg.Kernel.Commit, cfg.Kernel.CommitTitle)
 		res, err = runImpl(cfg, r, inst)
@@ -233,7 +261,10 @@ func checkBisectionResult(t *testing.T, test BisectionTest, res *Result) {
 	if len(res.Commits) != test.commitLen {
 		t.Fatalf("expected %d commits got %d commits", test.commitLen, len(res.Commits))
 	}
-	expectedTitle := fmt.Sprint(test.culprit)
+	expectedTitle := test.introduced
+	if test.fix {
+		expectedTitle = test.fixCommit
+	}
 	if len(res.Commits) == 1 && expectedTitle != res.Commits[0].Title {
 		t.Fatalf("expected commit '%v' got '%v'", expectedTitle, res.Commits[0].Title)
 	}
@@ -286,12 +317,17 @@ type BisectionTest struct {
 	// For cause bisection: Oldest commit returned by bisection.
 	// For fix bisection: Newest commit returned by bisection.
 	oldestLatest int
-	// For cause bisection: The commit introducing the bug.
-	// For fix bisection: The commit fixing the bug.
-	culprit         int
+	// The commit introducing the bug.
+	// If empty, the bug is assumed to exist from the beginning.
+	introduced string
+	// The commit fixing the bug.
+	// If empty, the bug is never fixed.
+	fixCommit string
+
 	baselineConfig  string
 	resultingConfig string
 	crossTree       bool
+	noFakeHashTest  bool
 
 	extraTest func(t *testing.T, res *Result)
 }
@@ -303,7 +339,7 @@ var bisectionTests = []BisectionTest{
 		startCommit: 905,
 		commitLen:   1,
 		expectRep:   true,
-		culprit:     602,
+		introduced:  "602",
 		extraTest: func(t *testing.T, res *Result) {
 			assert.Greater(t, res.Confidence, 0.99)
 		},
@@ -314,12 +350,12 @@ var bisectionTests = []BisectionTest{
 		commitLen:   1,
 		expectRep:   true,
 		flaky:       true,
-		culprit:     605,
+		introduced:  "605",
 		extraTest: func(t *testing.T, res *Result) {
 			// False negative probability of each run is ~35%.
-			// We get two "good" results, so our accumulated confidence is ~42%.
-			assert.Less(t, res.Confidence, 0.5)
-			assert.Greater(t, res.Confidence, 0.4)
+			// We get three "good" results, so our accumulated confidence is ~27%.
+			assert.Less(t, res.Confidence, 0.3)
+			assert.Greater(t, res.Confidence, 0.2)
 		},
 	},
 	// Test bisection returns correct cause with different baseline/config combinations.
@@ -328,7 +364,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         602,
+		introduced:      "602",
 		baselineConfig:  "baseline-repro",
 		resultingConfig: "baseline-repro",
 	},
@@ -337,7 +373,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         602,
+		introduced:      "602",
 		baselineConfig:  "baseline-not-reproducing",
 		resultingConfig: "original config",
 	},
@@ -346,7 +382,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         602,
+		introduced:      "602",
 		baselineConfig:  "baseline-fails",
 		resultingConfig: "original config",
 	},
@@ -355,7 +391,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         602,
+		introduced:      "602",
 		baselineConfig:  "baseline-skip",
 		resultingConfig: "original config",
 	},
@@ -364,7 +400,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         602,
+		introduced:      "602",
 		baselineConfig:  "minimize-succeeds",
 		resultingConfig: "new-minimized-config",
 	},
@@ -379,7 +415,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         905,
+		introduced:      "905",
 		sameBinaryStart: 904,
 		sameBinaryEnd:   905,
 		noopChange:      true,
@@ -400,7 +436,6 @@ var bisectionTests = []BisectionTest{
 		startCommit:  905,
 		commitLen:    0,
 		expectRep:    true,
-		culprit:      0,
 		oldestLatest: 400,
 	},
 	// Tests that more than 1 commit is returned when cause bisection is inconclusive.
@@ -410,7 +445,7 @@ var bisectionTests = []BisectionTest{
 		brokenStart: 500,
 		brokenEnd:   700,
 		commitLen:   15,
-		culprit:     605,
+		introduced:  "605",
 	},
 	// All releases are build broken.
 	{
@@ -430,8 +465,21 @@ var bisectionTests = []BisectionTest{
 		fix:         true,
 		startCommit: 400,
 		commitLen:   1,
-		culprit:     500,
+		fixCommit:   "500",
 		isRelease:   true,
+	},
+	// Tests that we do not confuse revisions where the bug was not yet introduced and where it's fixed.
+	// In this case, we have a 700-790-791-792-804 branch, which will be visited during bisection.
+	// As the faulty commit 704 is not reachable from there, kernel wouldn't crash and, without the
+	// special care, we'd incorrectly designate "790" as the fix commit.
+	// See #4117.
+	{
+		name:        "fix-after-bug",
+		fix:         true,
+		startCommit: 802,
+		commitLen:   1,
+		fixCommit:   "803",
+		introduced:  "704",
 	},
 	// Tests that bisection returns the correct fix commit despite SYZFATAL.
 	{
@@ -440,7 +488,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:      400,
 		injectSyzFailure: true,
 		commitLen:        1,
-		culprit:          500,
+		fixCommit:        "500",
 		isRelease:        true,
 	},
 	// Tests that bisection returns the correct fix commit in case of SYZFATAL.
@@ -450,7 +498,7 @@ var bisectionTests = []BisectionTest{
 		startCommit: 400,
 		reportType:  crash.SyzFailure,
 		commitLen:   1,
-		culprit:     500,
+		fixCommit:   "500",
 		isRelease:   true,
 	},
 	// Tests that fix bisection returns error when crash does not reproduce
@@ -460,6 +508,7 @@ var bisectionTests = []BisectionTest{
 		fix:         true,
 		startCommit: 905,
 		expectErr:   true,
+		fixCommit:   "900",
 	},
 	// Tests that no commits are returned when HEAD is build broken.
 	// Fix bisection equivalent of all-releases-broken.
@@ -469,7 +518,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:  400,
 		brokenStart:  500,
 		brokenEnd:    1000,
-		culprit:      1000,
+		fixCommit:    "1000",
 		oldestLatest: 905,
 		// We mark these as re-tryable, because build/boot failures of HEAD will also be caught during regular fuzzing
 		// and are fixed by kernel devs or syz-ci admins in a timely manner.
@@ -483,7 +532,7 @@ var bisectionTests = []BisectionTest{
 		name:         "fix-HEAD-crashes",
 		fix:          true,
 		startCommit:  400,
-		culprit:      1000,
+		fixCommit:    "1000",
 		oldestLatest: 905,
 		commitLen:    0,
 		expectRep:    true,
@@ -493,18 +542,18 @@ var bisectionTests = []BisectionTest{
 	{
 		name:        "fix-inconclusive",
 		fix:         true,
-		startCommit: 400,
-		brokenStart: 500,
-		brokenEnd:   600,
-		commitLen:   8,
-		culprit:     501,
+		startCommit: 500,
+		brokenStart: 600,
+		brokenEnd:   700,
+		commitLen:   9,
+		fixCommit:   "601",
 	},
 	{
 		name:            "cause-same-binary",
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         503,
+		introduced:      "503",
 		sameBinaryStart: 502,
 		sameBinaryEnd:   503,
 		noopChange:      true,
@@ -514,7 +563,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         503,
+		introduced:      "503",
 		sameBinaryStart: 400,
 		sameBinaryEnd:   502,
 	},
@@ -523,7 +572,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         503,
+		introduced:      "503",
 		sameBinaryStart: 503,
 		sameBinaryEnd:   905,
 	},
@@ -532,7 +581,7 @@ var bisectionTests = []BisectionTest{
 		fix:             true,
 		startCommit:     400,
 		commitLen:       1,
-		culprit:         503,
+		fixCommit:       "503",
 		sameBinaryStart: 502,
 		sameBinaryEnd:   504,
 		noopChange:      true,
@@ -542,7 +591,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         500,
+		introduced:      "500",
 		sameBinaryStart: 405,
 		sameBinaryEnd:   500,
 		noopChange:      true,
@@ -553,7 +602,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         501,
+		introduced:      "501",
 		sameBinaryStart: 500,
 		sameBinaryEnd:   501,
 		noopChange:      true,
@@ -563,7 +612,7 @@ var bisectionTests = []BisectionTest{
 		startCommit:     905,
 		commitLen:       1,
 		expectRep:       true,
-		culprit:         405,
+		introduced:      "405",
 		sameBinaryStart: 404,
 		sameBinaryEnd:   405,
 		noopChange:      true,
@@ -573,7 +622,7 @@ var bisectionTests = []BisectionTest{
 		fix:             true,
 		startCommit:     400,
 		commitLen:       1,
-		culprit:         905,
+		fixCommit:       "905",
 		sameBinaryStart: 904,
 		sameBinaryEnd:   905,
 		noopChange:      true,
@@ -583,13 +632,13 @@ var bisectionTests = []BisectionTest{
 		fix:         true,
 		startCommit: 400,
 		commitLen:   1,
-		culprit:     900,
+		fixCommit:   "900",
 		isRelease:   true,
 	},
 	{
 		name:            "cause-not-in-previous-release-issue-1527",
 		startCommit:     905,
-		culprit:         650,
+		introduced:      "650",
 		commitLen:       1,
 		expectRep:       true,
 		sameBinaryStart: 500,
@@ -604,7 +653,7 @@ var bisectionTests = []BisectionTest{
 		expectErrType: &InfraError{},
 		infraErrStart: 600,
 		infraErrEnd:   800,
-		culprit:       602,
+		introduced:    "602",
 	},
 	{
 		name:              "fix-cross-tree",
@@ -613,7 +662,41 @@ var bisectionTests = []BisectionTest{
 		startCommitBranch: "v8-branch",
 		commitLen:         1,
 		crossTree:         true,
-		culprit:           903,
+		fixCommit:         "903",
+	},
+	{
+		name:              "cause-finds-other-branch-commit",
+		startCommit:       852,
+		startCommitBranch: "v8-branch",
+		commitLen:         1,
+		expectRep:         true,
+		introduced:        "602",
+		noFakeHashTest:    true,
+	},
+	{
+		// There's no fix for the bug because it was introduced
+		// in another tree.
+		name:              "no-fix-cross-tree",
+		fix:               true,
+		startCommit:       852,
+		startCommitBranch: "v8-branch",
+		commitLen:         0,
+		crossTree:         true,
+		introduced:        "851",
+		oldestLatest:      800,
+	},
+	{
+		// We are unable to test the merge base commit.
+		name:              "fix-cross-tree-broken-start",
+		fix:               true,
+		startCommit:       851,
+		startCommitBranch: "v8-branch",
+		commitLen:         0,
+		crossTree:         true,
+		fixCommit:         "903",
+		brokenStart:       800,
+		brokenEnd:         800,
+		oldestLatest:      800,
 	},
 }
 
@@ -869,6 +952,62 @@ func TestMostFrequentReport(t *testing.T) {
 			assert.ElementsMatch(t, types, test.types)
 			assert.Equal(t, rep.Title, test.report)
 			assert.Equal(t, other, test.other)
+		})
+	}
+}
+
+func TestPickReleaseTags(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []string
+		ret  []string
+	}{
+		{
+			name: "upstream-clang",
+			tags: []string{
+				"v6.5", "v6.4", "v6.3", "v6.2", "v6.1", "v6.0", "v5.19",
+				"v5.18", "v5.17", "v5.16", "v5.15", "v5.14", "v5.13",
+				"v5.12", "v5.11", "v5.10", "v5.9", "v5.8", "v5.7", "v5.6",
+				"v5.5", "v5.4",
+			},
+			ret: []string{
+				"v6.5", "v6.4", "v6.3", "v6.1", "v5.19", "v5.17", "v5.15",
+				"v5.13", "v5.10", "v5.7", "v5.4",
+			},
+		},
+		{
+			name: "upstream-gcc",
+			tags: []string{
+				"v6.5", "v6.4", "v6.3", "v6.2", "v6.1", "v6.0", "v5.19",
+				"v5.18", "v5.17", "v5.16", "v5.15", "v5.14", "v5.13",
+				"v5.12", "v5.11", "v5.10", "v5.9", "v5.8", "v5.7", "v5.6",
+				"v5.5", "v5.4", "v5.3", "v5.2", "v5.1", "v5.0", "v4.20", "v4.19",
+				"v4.18",
+			},
+			ret: []string{
+				"v6.5", "v6.4", "v6.3", "v6.1", "v5.19", "v5.17", "v5.15",
+				"v5.13", "v5.10", "v5.7", "v5.4", "v5.1", "v4.19", "v4.18",
+			},
+		},
+		{
+			name: "lts",
+			tags: []string{
+				"v5.15.10", "v5.15.9", "v5.15.8", "v5.15.7", "v5.15.6",
+				"v5.15.5", "v5.15.4", "v5.15.3", "v5.15.2", "v5.15.1",
+				"v5.15", "v5.14", "v5.13", "v5.12", "v5.11", "v5.10",
+				"v5.9", "v5.8", "v5.7", "v5.6", "v5.5", "v5.4",
+			},
+			ret: []string{
+				"v5.15.10", "v5.15.9", "v5.15.5", "v5.15", "v5.14", "v5.13",
+				"v5.11", "v5.9", "v5.7", "v5.5", "v5.4",
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			ret := pickReleaseTags(append([]string{}, test.tags...))
+			assert.Equal(t, test.ret, ret)
 		})
 	}
 }

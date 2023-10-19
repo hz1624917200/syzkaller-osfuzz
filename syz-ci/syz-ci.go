@@ -71,6 +71,7 @@ import (
 	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/mgrconfig"
 	"github.com/google/syzkaller/pkg/osutil"
+	"github.com/google/syzkaller/pkg/vcs"
 )
 
 var (
@@ -111,9 +112,16 @@ type Config struct {
 	// BinDir must point to a dir that contains compilers required to build
 	// older versions of the kernel. For linux, it needs to include several
 	// compiler versions.
-	BisectBinDir string           `json:"bisect_bin_dir"`
-	Ccache       string           `json:"ccache"`
-	Managers     []*ManagerConfig `json:"managers"`
+	BisectBinDir string `json:"bisect_bin_dir"`
+	// Keys of BisectIgnore are full commit hashes that should never be reported
+	// in bisection results.
+	// Values of the map are ignored and can e.g. serve as comments.
+	BisectIgnore map[string]string `json:"bisect_ignore"`
+	// Extra commits to cherry-pick to older kernel revisions.
+	// The list is concatenated with the similar parameter from ManagerConfig.
+	BisectBackports []vcs.BackportCommit `json:"bisect_backports"`
+	Ccache          string               `json:"ccache"`
+	Managers        []*ManagerConfig     `json:"managers"`
 	// Poll period for jobs in seconds (optional, defaults to 10 seconds)
 	JobPollPeriod int `json:"job_poll_period"`
 	// Set up a second (parallel) job processor to speed up processing.
@@ -182,6 +190,8 @@ type ManagerConfig struct {
 	// File with sysctl values (e.g. output of sysctl -a, optional).
 	KernelSysctl string      `json:"kernel_sysctl"`
 	Jobs         ManagerJobs `json:"jobs"`
+	// Extra commits to cherry pick to older kernel revisions.
+	BisectBackports []vcs.BackportCommit `json:"bisect_backports"`
 
 	ManagerConfig json.RawMessage `json:"manager_config"`
 	managercfg    *mgrconfig.Config
@@ -388,7 +398,7 @@ func loadConfig(filename string) (*Config, error) {
 func loadManagerConfig(cfg *Config, mgr *ManagerConfig) error {
 	managercfg, err := mgrconfig.LoadPartialData(mgr.ManagerConfig)
 	if err != nil {
-		return fmt.Errorf("manager config: %v", err)
+		return fmt.Errorf("manager config: %w", err)
 	}
 	if managercfg.Name != "" && mgr.Name != "" {
 		return fmt.Errorf("both managercfg.Name=%q and mgr.Name=%q are specified", managercfg.Name, mgr.Name)

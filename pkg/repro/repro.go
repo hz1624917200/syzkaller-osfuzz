@@ -527,13 +527,19 @@ func (ctx *context) testProg(p *prog.Prog, duration time.Duration, opts csource.
 
 func (ctx *context) testWithInstance(callback func(execInterface) (rep *instance.RunResult,
 	err error)) (bool, error) {
-	result, err := ctx.runOnInstance(callback)
-	if err != nil {
+	var result *instance.RunResult
+	var err error
+
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
 		// It's hard to classify all kinds of errors into the one worth repeating
-		// and not. So let's just retry run for all errors.
+		// and not. So let's just retry runs for all errors.
 		// If the problem is transient, it will likely go away.
 		// If the problem is permanent, it will just be the same.
 		result, err = ctx.runOnInstance(callback)
+		if err == nil {
+			break
+		}
 	}
 	if err != nil {
 		return false, err
@@ -667,7 +673,8 @@ func (ctx *context) createInstances(cfg *mgrconfig.Config, vmPool *vm.Pool) {
 				inst, err = instance.CreateExecProgInstance(vmPool, vmIndex, cfg,
 					ctx.reporter, &instance.OptionalConfig{Logf: ctx.reproLogf})
 				if err != nil {
-					ctx.reproLogf(0, "failed to init instance: %v", err)
+					ctx.reproLogf(0, "failed to init instance: %v, attempt %d/%d",
+						err, try+1, maxTry)
 					time.Sleep(10 * time.Second)
 					continue
 				}

@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -20,7 +21,7 @@ import (
 func apiReportingPollBugs(c context.Context, r *http.Request, payload []byte) (interface{}, error) {
 	req := new(dashapi.PollBugsRequest)
 	if err := json.Unmarshal(payload, req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
 	reports := reportingPollBugs(c, req.Type)
 	resp := &dashapi.PollBugsResponse{
@@ -28,7 +29,7 @@ func apiReportingPollBugs(c context.Context, r *http.Request, payload []byte) (i
 	}
 	jobs, err := pollCompletedJobs(c, req.Type)
 	if err != nil {
-		log.Errorf(c, "failed to poll jobs: %v", err)
+		log.Errorf(c, "failed to poll jobs(bugs): %v", err)
 	}
 	resp.Reports = append(resp.Reports, jobs...)
 	return resp, nil
@@ -37,7 +38,7 @@ func apiReportingPollBugs(c context.Context, r *http.Request, payload []byte) (i
 func apiReportingPollNotifications(c context.Context, r *http.Request, payload []byte) (interface{}, error) {
 	req := new(dashapi.PollNotificationsRequest)
 	if err := json.Unmarshal(payload, req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
 	notifs := reportingPollNotifications(c, req.Type)
 	resp := &dashapi.PollNotificationsResponse{
@@ -49,7 +50,7 @@ func apiReportingPollNotifications(c context.Context, r *http.Request, payload [
 func apiReportingPollClosed(c context.Context, r *http.Request, payload []byte) (interface{}, error) {
 	req := new(dashapi.PollClosedRequest)
 	if err := json.Unmarshal(payload, req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
 	ids, err := reportingPollClosed(c, req.IDs)
 	if err != nil {
@@ -64,7 +65,7 @@ func apiReportingPollClosed(c context.Context, r *http.Request, payload []byte) 
 func apiReportingUpdate(c context.Context, r *http.Request, payload []byte) (interface{}, error) {
 	req := new(dashapi.BugUpdate)
 	if err := json.Unmarshal(payload, req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
 	if req.JobID != "" {
 		resp := &dashapi.BugUpdateReply{
@@ -89,13 +90,14 @@ func apiReportingUpdate(c context.Context, r *http.Request, payload []byte) (int
 func apiNewTestJob(c context.Context, r *http.Request, payload []byte) (interface{}, error) {
 	req := new(dashapi.TestPatchRequest)
 	if err := json.Unmarshal(payload, req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 	}
 	resp := &dashapi.TestPatchReply{}
 	err := handleExternalTestRequest(c, req)
 	if err != nil {
 		resp.ErrorText = err.Error()
-		if _, ok := err.(*BadTestRequestError); !ok {
+		var badTest *BadTestRequestError
+		if !errors.As(err, &badTest) {
 			// Log errors that are not related to the invalid input.
 			log.Errorf(c, "external patch posting error: %v", err)
 		}

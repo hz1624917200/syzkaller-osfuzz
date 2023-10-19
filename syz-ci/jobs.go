@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -255,10 +256,10 @@ func (jp *JobProcessor) pollRepo(mgr *Manager, URL, branch, reportEmail string) 
 	dir := filepath.Join(jp.baseDir, mgr.managercfg.TargetOS, "kernel")
 	repo, err := vcs.NewRepo(mgr.managercfg.TargetOS, mgr.managercfg.Type, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kernel repo: %v", err)
+		return nil, fmt.Errorf("failed to create kernel repo: %w", err)
 	}
 	if _, err = repo.CheckoutBranch(URL, branch); err != nil {
-		return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %v", URL, branch, err)
+		return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %w", URL, branch, err)
 	}
 	return repo.ExtractFixTagsFromCommits("HEAD", reportEmail)
 }
@@ -267,10 +268,10 @@ func (jp *JobProcessor) getCommitInfo(mgr *Manager, URL, branch string, commits 
 	dir := filepath.Join(jp.baseDir, mgr.managercfg.TargetOS, "kernel")
 	repo, err := vcs.NewRepo(mgr.managercfg.TargetOS, mgr.managercfg.Type, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kernel repo: %v", err)
+		return nil, fmt.Errorf("failed to create kernel repo: %w", err)
 	}
 	if _, err = repo.CheckoutBranch(URL, branch); err != nil {
-		return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %v", URL, branch, err)
+		return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %w", URL, branch, err)
 	}
 	results, missing, err := repo.GetCommitsByTitles(commits)
 	if err != nil {
@@ -296,7 +297,7 @@ func (jp *JobProcessor) pollJobs() {
 			BisectCause: jobs.BisectCause,
 			BisectFix:   jobs.BisectFix,
 		}
-		if apiJobs.TestPatches || apiJobs.BisectCause || apiJobs.BisectFix {
+		if apiJobs.Any() {
 			poll.Managers[mgr.name] = apiJobs
 		}
 	}
@@ -381,27 +382,27 @@ func (jp *JobProcessor) process(job *Job) *dashapi.JobDoneReq {
 		},
 	}
 	job.resp = resp
+	resp.Build.KernelRepo = req.KernelRepo
+	resp.Build.KernelBranch = req.KernelBranch
+	resp.Build.KernelConfig = req.KernelConfig
 	switch req.Type {
 	case dashapi.JobTestPatch:
-		mgrcfg.Name += "-test" + jp.instanceSuffix
-		resp.Build.KernelRepo = req.KernelRepo
-		resp.Build.KernelBranch = req.KernelBranch
 		resp.Build.KernelCommit = "[unknown]"
+		mgrcfg.Name += "-test" + jp.instanceSuffix
 	case dashapi.JobBisectCause, dashapi.JobBisectFix:
-		mgrcfg.Name += "-bisect" + jp.instanceSuffix
-		resp.Build.KernelRepo = mgr.mgrcfg.Repo
-		resp.Build.KernelBranch = mgr.mgrcfg.Branch
 		resp.Build.KernelCommit = req.KernelCommit
 		resp.Build.KernelCommitTitle = req.KernelCommitTitle
-		resp.Build.KernelCommitDate = req.KernelCommitDate
-		resp.Build.KernelConfig = req.KernelConfig
+		mgrcfg.Name += "-bisect" + jp.instanceSuffix
 	default:
 		err := fmt.Errorf("bad job type %v", req.Type)
 		job.resp.Error = []byte(err.Error())
 		jp.Errorf("%s", err)
 		return job.resp
 	}
-
+	if req.KernelRepo == "" {
+		req.KernelRepo = mgr.mgrcfg.Repo
+		req.KernelBranch = mgr.mgrcfg.Branch
+	}
 	required := []struct {
 		name string
 		ok   bool
@@ -456,8 +457,12 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 		var err error
 		baseline, err = os.ReadFile(mgr.mgrcfg.KernelBaselineConfig)
 		if err != nil {
-			return fmt.Errorf("failed to read baseline config: %v", err)
+			return fmt.Errorf("failed to read baseline config: %w", err)
 		}
+	}
+	err := jp.prepareBisectionRepo(mgrcfg, req)
+	if err != nil {
+		return err
 	}
 	trace := new(bytes.Buffer)
 	cfg := &bisect.Config{
@@ -489,8 +494,8 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 		Linker:          mgr.mgrcfg.Linker,
 		Ccache:          jp.cfg.Ccache,
 		Kernel: bisect.KernelConfig{
-			Repo:           mgr.mgrcfg.Repo,
-			Branch:         mgr.mgrcfg.Branch,
+			Repo:           req.KernelRepo,
+			Branch:         req.KernelBranch,
 			Commit:         req.KernelCommit,
 			CommitTitle:    req.KernelCommitTitle,
 			Cmdline:        mgr.mgrcfg.KernelCmdline,
@@ -498,6 +503,7 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 			Config:         req.KernelConfig,
 			BaselineConfig: baseline,
 			Userspace:      mgr.mgrcfg.Userspace,
+			Backports:      mgr.backportCommits(),
 		},
 		Syzkaller: bisect.SyzkallerConfig{
 			Repo:   jp.cfg.SyzkallerRepo,
@@ -508,6 +514,7 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 			Syz:  req.ReproSyz,
 			C:    req.ReproC,
 		},
+		CrossTree:      req.MergeBaseRepo != "",
 		Manager:        mgrcfg,
 		BuildSemaphore: buildSem,
 		TestSemaphore:  testSem,
@@ -516,7 +523,8 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 	res, err := bisect.Run(cfg)
 	resp.Log = trace.Bytes()
 	if err != nil {
-		if _, ok := err.(*bisect.InfraError); ok {
+		var infraErr *bisect.InfraError
+		if errors.As(err, &infraErr) {
 			resp.Flags |= dashapi.BisectResultInfraError
 		}
 		return err
@@ -541,20 +549,12 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 		if res.IsRelease {
 			resp.Flags |= dashapi.BisectResultRelease
 		}
-		const confidenceCutOff = 0.5
+		const confidenceCutOff = 0.66
 		if res.Confidence < confidenceCutOff {
 			resp.Flags |= dashapi.BisectResultIgnore
 		}
-		ignoredCommits := []string{
-			// Commit "usb: gadget: add raw-gadget interface" adds a kernel interface for
-			// triggering USB bugs, which ends up being the guilty commit during bisection
-			// for USB bugs introduced before it.
-			"f2c2e717642c66f7fe7e5dd69b2e8ff5849f4d10",
-		}
-		for _, commit := range ignoredCommits {
-			if res.Commits[0].Hash == commit {
-				resp.Flags |= dashapi.BisectResultIgnore
-			}
+		if jp.ignoreBisectCommit(res.Commits[0]) {
+			resp.Flags |= dashapi.BisectResultIgnore
 		}
 	}
 	if res.Report != nil {
@@ -575,6 +575,28 @@ func (jp *JobProcessor) bisect(job *Job, mgrcfg *mgrconfig.Config) error {
 	return nil
 }
 
+var ignoredCommits = []string{
+	// Commit "usb: gadget: add raw-gadget interface" adds a kernel interface for
+	// triggering USB bugs, which ends up being the guilty commit during bisection
+	// for USB bugs introduced before it.
+	"f2c2e717642c66f7fe7e5dd69b2e8ff5849f4d10",
+	// Commit "devlink: bump the instance index directly when iterating" has likely
+	// fixed some frequent task hung, which skews fix bisection results.
+	// TODO: consider backporting it during bisection itself.
+	"d772781964415c63759572b917e21c4f7ec08d9f",
+}
+
+func (jp *JobProcessor) ignoreBisectCommit(commit *vcs.Commit) bool {
+	// First look at the always ignored values.
+	for _, hash := range ignoredCommits {
+		if commit.Hash == hash {
+			return true
+		}
+	}
+	_, ok := jp.cfg.BisectIgnore[commit.Hash]
+	return ok
+}
+
 func (jp *JobProcessor) testPatch(job *Job, mgrcfg *mgrconfig.Config) error {
 	req, resp, mgr := job.req, job.resp, job.mgr
 	env, err := instance.NewEnv(mgrcfg, buildSem, testSem)
@@ -589,7 +611,7 @@ func (jp *JobProcessor) testPatch(job *Job, mgrcfg *mgrconfig.Config) error {
 	jp.Logf(0, "fetching kernel...")
 	repo, err := vcs.NewRepo(mgrcfg.TargetOS, mgrcfg.Type, mgrcfg.KernelSrc)
 	if err != nil {
-		return fmt.Errorf("failed to create kernel repo: %v", err)
+		return fmt.Errorf("failed to create kernel repo: %w", err)
 	}
 	kernelCommit, err := jp.checkoutJobCommit(job, repo)
 	if err != nil {
@@ -600,7 +622,7 @@ func (jp *JobProcessor) testPatch(job *Job, mgrcfg *mgrconfig.Config) error {
 	resp.Build.KernelCommitDate = kernelCommit.CommitDate
 
 	if err := build.Clean(mgrcfg.TargetOS, mgrcfg.TargetVMArch, mgrcfg.Type, mgrcfg.KernelSrc); err != nil {
-		return fmt.Errorf("kernel clean failed: %v", err)
+		return fmt.Errorf("kernel clean failed: %w", err)
 	}
 	if len(req.Patch) != 0 {
 		if err := vcs.Patch(mgrcfg.KernelSrc, req.Patch); err != nil {
@@ -636,7 +658,7 @@ func (jp *JobProcessor) testPatch(job *Job, mgrcfg *mgrconfig.Config) error {
 	if kernelConfig != "" {
 		resp.Build.KernelConfig, err = os.ReadFile(kernelConfig)
 		if err != nil {
-			return fmt.Errorf("failed to read config file: %v", err)
+			return fmt.Errorf("failed to read config file: %w", err)
 		}
 	}
 	jp.Logf(0, "job: testing...")
@@ -658,6 +680,23 @@ func (jp *JobProcessor) testPatch(job *Job, mgrcfg *mgrconfig.Config) error {
 	return nil
 }
 
+func (jp *JobProcessor) prepareBisectionRepo(mgrcfg *mgrconfig.Config, req *dashapi.JobPollResp) error {
+	if req.MergeBaseRepo == "" {
+		// No need to.
+		return nil
+	}
+	repo, err := vcs.NewRepo(mgrcfg.TargetOS, mgrcfg.Type, mgrcfg.KernelSrc)
+	if err != nil {
+		return fmt.Errorf("failed to create kernel repo: %w", err)
+	}
+	_, err = checkoutKernelOrCommit(repo, req.MergeBaseRepo, req.MergeBaseBranch)
+	if err != nil {
+		return fmt.Errorf("failed to checkout the merge base repo %v on %v: %w",
+			req.MergeBaseRepo, req.MergeBaseBranch, err)
+	}
+	return nil
+}
+
 func (jp *JobProcessor) checkoutJobCommit(job *Job, repo vcs.Repo) (*vcs.Commit, error) {
 	req, resp := job.req, job.resp
 	var kernelCommit *vcs.Commit
@@ -665,17 +704,17 @@ func (jp *JobProcessor) checkoutJobCommit(job *Job, repo vcs.Repo) (*vcs.Commit,
 		jp.Logf(1, "checking out the base kernel...")
 		firstCommit, err := checkoutKernelOrCommit(repo, req.KernelRepo, req.KernelBranch)
 		if err != nil {
-			return nil, fmt.Errorf("failed to checkout first kernel repo %v on %v: %v",
+			return nil, fmt.Errorf("failed to checkout first kernel repo %v on %v: %w",
 				req.KernelRepo, req.KernelBranch, err)
 		}
 		secondCommit, err := checkoutKernelOrCommit(repo, req.MergeBaseRepo, req.MergeBaseBranch)
 		if err != nil {
-			return nil, fmt.Errorf("failed to checkout second kernel repo %v on %v: %v",
+			return nil, fmt.Errorf("failed to checkout second kernel repo %v on %v: %w",
 				req.MergeBaseRepo, req.MergeBaseBranch, err)
 		}
 		bases, err := repo.MergeBases(firstCommit.Hash, secondCommit.Hash)
 		if err != nil {
-			return nil, fmt.Errorf("failed to calculate merge bases between %v and %v: %v",
+			return nil, fmt.Errorf("failed to calculate merge bases between %v and %v: %w",
 				firstCommit.Hash, secondCommit.Hash, err)
 		}
 		if len(bases) != 1 {
@@ -684,7 +723,7 @@ func (jp *JobProcessor) checkoutJobCommit(job *Job, repo vcs.Repo) (*vcs.Commit,
 		}
 		kernelCommit, err = repo.CheckoutCommit(req.KernelRepo, bases[0].Hash)
 		if err != nil {
-			return nil, fmt.Errorf("failed to checkout kernel repo %v on merge base %v: %v",
+			return nil, fmt.Errorf("failed to checkout kernel repo %v on merge base %v: %w",
 				req.KernelRepo, bases[0].Hash, err)
 		}
 		resp.Build.KernelBranch = ""
@@ -692,7 +731,7 @@ func (jp *JobProcessor) checkoutJobCommit(job *Job, repo vcs.Repo) (*vcs.Commit,
 		var err error
 		kernelCommit, err = repo.CheckoutCommit(req.KernelRepo, req.KernelBranch)
 		if err != nil {
-			return nil, fmt.Errorf("failed to checkout kernel repo %v on commit %v: %v",
+			return nil, fmt.Errorf("failed to checkout kernel repo %v on commit %v: %w",
 				req.KernelRepo, req.KernelBranch, err)
 		}
 		resp.Build.KernelBranch = ""
@@ -700,7 +739,7 @@ func (jp *JobProcessor) checkoutJobCommit(job *Job, repo vcs.Repo) (*vcs.Commit,
 		var err error
 		kernelCommit, err = repo.CheckoutBranch(req.KernelRepo, req.KernelBranch)
 		if err != nil {
-			return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %v",
+			return nil, fmt.Errorf("failed to checkout kernel repo %v/%v: %w",
 				req.KernelRepo, req.KernelBranch, err)
 		}
 	}
@@ -734,18 +773,20 @@ func aggregateTestResults(results []instance.EnvTestResult) (*patchTestResult, e
 			continue
 		}
 		anyErr = res.Error
-		switch err := res.Error.(type) {
-		case *instance.TestError:
+		var testError *instance.TestError
+		var crashError *instance.CrashError
+		switch {
+		case errors.As(res.Error, &testError):
 			// We should not put rep into resp.CrashTitle/CrashReport,
 			// because that will be treated as patch not fixing the bug.
-			if rep := err.Report; rep != nil {
+			if rep := testError.Report; rep != nil {
 				testErr = fmt.Errorf("%v\n\n%s\n\n%s", rep.Title, rep.Report, rep.Output)
 			} else {
-				testErr = fmt.Errorf("%v\n\n%s", err.Title, err.Output)
+				testErr = fmt.Errorf("%v\n\n%s", testError.Title, testError.Output)
 			}
-		case *instance.CrashError:
-			if resReport == nil || (len(resReport.report.Report) == 0 && len(err.Report.Report) != 0) {
-				resReport = &patchTestResult{report: err.Report, rawOutput: res.RawOutput}
+		case errors.As(res.Error, &crashError):
+			if resReport == nil || (len(resReport.report.Report) == 0 && len(crashError.Report.Report) != 0) {
+				resReport = &patchTestResult{report: crashError.Report, rawOutput: res.RawOutput}
 			}
 		}
 	}

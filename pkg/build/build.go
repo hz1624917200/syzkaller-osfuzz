@@ -7,6 +7,7 @@ package build
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,7 +82,7 @@ func Image(params Params) (details ImageDetails, err error) {
 	if len(params.Config) != 0 {
 		// Write kernel config early, so that it's captured on build failures.
 		if err = osutil.WriteFile(filepath.Join(params.OutputDir, "kernel.config"), params.Config); err != nil {
-			err = fmt.Errorf("failed to write config file: %v", err)
+			err = fmt.Errorf("failed to write config file: %w", err)
 			return
 		}
 	}
@@ -100,7 +101,7 @@ func Image(params Params) (details ImageDetails, err error) {
 	}
 	if key := filepath.Join(params.OutputDir, "key"); osutil.IsExist(key) {
 		if err := os.Chmod(key, 0600); err != nil {
-			return details, fmt.Errorf("failed to chmod 0600 %v: %v", key, err)
+			return details, fmt.Errorf("failed to chmod 0600 %v: %w", key, err)
 		}
 	}
 	return
@@ -195,8 +196,8 @@ func extractRootCause(err error, OS, kernelSrc string) error {
 	if err == nil {
 		return nil
 	}
-	verr, ok := err.(*osutil.VerboseError)
-	if !ok {
+	var verr *osutil.VerboseError
+	if !errors.As(err, &verr) {
 		return err
 	}
 	reason, file := extractCauseInner(verr.Output, kernelSrc)

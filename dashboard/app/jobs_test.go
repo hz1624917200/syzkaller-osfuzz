@@ -41,7 +41,7 @@ func TestJob(t *testing.T) {
 	sender = c.pollEmailBug().Sender
 	_, extBugID, err := email.RemoveAddrContext(sender)
 	c.expectOK(err)
-	mailingList := config.Namespaces["access-public-email"].Reporting[0].Config.(*EmailConfig).Email
+	mailingList := c.config().Namespaces["access-public-email"].Reporting[0].Config.(*EmailConfig).Email
 	c.incomingEmail(sender, "bla-bla-bla", EmailOptFrom("maintainer@kernel.org"),
 		EmailOptCC([]string{mailingList, "kernel@mailing.list"}))
 
@@ -64,13 +64,13 @@ func TestJob(t *testing.T) {
 	c.incomingEmail(sender, "#syz test: repo",
 		EmailOptFrom("test@requester.com"), EmailOptSubject("my-subject"), EmailOptCC([]string{mailingList}))
 	msg := c.pollEmailBug()
-	c.expectEQ(strings.Contains(msg.Body, "want 2 args"), true)
+	c.expectEQ(strings.Contains(msg.Body, "want either no args or 2 args"), true)
 	c.expectEQ(msg.Subject, "Re: my-subject")
 
 	c.incomingEmail(sender, "#syz test: repo branch commit",
 		EmailOptFrom("test@requester.com"), EmailOptSubject("Re: my-subject"), EmailOptCC([]string{mailingList}))
 	msg = c.pollEmailBug()
-	c.expectEQ(strings.Contains(msg.Body, "want 2 args"), true)
+	c.expectEQ(strings.Contains(msg.Body, "want either no args or 2 args"), true)
 	c.expectEQ(msg.Subject, "Re: my-subject")
 
 	c.incomingEmail(sender, "#syz test: repo branch",
@@ -293,7 +293,7 @@ func TestBootErrorPatch(t *testing.T) {
 	sender := c.pollEmailBug().Sender
 	c.incomingEmail(sender, "#syz upstream\n")
 	sender = c.pollEmailBug().Sender
-	mailingList := config.Namespaces["test2"].Reporting[1].Config.(*EmailConfig).Email
+	mailingList := c.config().Namespaces["test2"].Reporting[1].Config.(*EmailConfig).Email
 
 	c.incomingEmail(sender, "#syz test: git://git.git/git.git kernel-branch\n"+sampleGitPatch,
 		EmailOptFrom("test@requester.com"), EmailOptCC([]string{mailingList}))
@@ -318,7 +318,7 @@ func TestTestErrorPatch(t *testing.T) {
 	sender := c.pollEmailBug().Sender
 	c.incomingEmail(sender, "#syz upstream\n")
 	sender = c.pollEmailBug().Sender
-	mailingList := config.Namespaces["test2"].Reporting[1].Config.(*EmailConfig).Email
+	mailingList := c.config().Namespaces["test2"].Reporting[1].Config.(*EmailConfig).Email
 
 	c.incomingEmail(sender, "#syz test: git://git.git/git.git kernel-branch\n"+sampleGitPatch,
 		EmailOptFrom("test@requester.com"), EmailOptCC([]string{mailingList}))
@@ -431,7 +431,7 @@ func TestReproRetestJob(t *testing.T) {
 	c.expectEQ(bug.ReproLevel, ReproLevelC)
 
 	// Let's say that the C repro testing has failed.
-	c.advanceTime(config.Obsoleting.ReproRetestPeriod + time.Hour)
+	c.advanceTime(c.config().Obsoleting.ReproRetestStart + time.Hour)
 	for i := 0; i < 2; i++ {
 		resp := client.pollSpecificJobs(build.Manager, dashapi.ManagerJobs{TestPatches: true})
 		c.expectEQ(resp.Type, dashapi.JobTestPatch)
@@ -461,7 +461,7 @@ func TestReproRetestJob(t *testing.T) {
 	bug, _, _ = c.loadBug(extBugID)
 	c.expectEQ(bug.HeadReproLevel, ReproLevelSyz)
 	// Let's also deprecate the syz repro.
-	c.advanceTime(config.Obsoleting.ReproRetestPeriod + time.Hour)
+	c.advanceTime(c.config().Obsoleting.ReproRetestPeriod + time.Hour)
 
 	resp := client.pollSpecificJobs(build.Manager, dashapi.ManagerJobs{TestPatches: true})
 	c.expectEQ(resp.Type, dashapi.JobTestPatch)
@@ -510,10 +510,7 @@ func TestDelegatedManagerReproRetest(t *testing.T) {
 	c.expectOK(err)
 
 	// Deprecate the oldManager.
-	mgrConfig := config.Namespaces["test-mgr-decommission"].Managers[oldManager]
-	mgrConfig.Decommissioned = true
-	mgrConfig.DelegatedTo = newManager
-	config.Namespaces["test-mgr-decommission"].Managers[oldManager] = mgrConfig
+	c.decommissionManager("test-mgr-decommission", oldManager, newManager)
 
 	// Upload a build for the new manager.
 	c.advanceTime(time.Minute)
@@ -531,7 +528,7 @@ func TestDelegatedManagerReproRetest(t *testing.T) {
 	c.pollEmailBug()
 
 	// Let's say that the C repro testing has failed.
-	c.advanceTime(config.Obsoleting.ReproRetestPeriod + time.Hour)
+	c.advanceTime(c.config().Obsoleting.ReproRetestPeriod + time.Hour)
 
 	resp := client.pollSpecificJobs(build.Manager, dashapi.ManagerJobs{TestPatches: true})
 	c.expectEQ(resp.Type, dashapi.JobTestPatch)
@@ -1235,4 +1232,31 @@ func TestJobCauseRetry(t *testing.T) {
 
 	msg := c.pollEmailBug()
 	c.expectTrue(strings.Contains(msg.Body, "syzbot has bisected this issue to:"))
+}
+
+// Test that we accept `#syz test` commands without arguments.
+func TestEmailTestCommandNoArgs(t *testing.T) {
+	c := NewCtx(t)
+	defer c.Close()
+
+	client := c.publicClient
+	build := testBuild(1)
+	build.KernelRepo = "git://git.git/git.git"
+	build.KernelBranch = "kernel-branch"
+	client.UploadBuild(build)
+
+	crash := testCrashWithRepro(build, 2)
+	client.ReportCrash(crash)
+
+	sender := c.pollEmailBug().Sender
+	mailingList := c.config().Namespaces["access-public-email"].Reporting[0].Config.(*EmailConfig).Email
+
+	c.incomingEmail(sender, "#syz test\n"+sampleGitPatch,
+		EmailOptFrom("test@requester.com"), EmailOptCC([]string{mailingList}))
+	c.expectNoEmail()
+	pollResp := client.pollJobs(build.Manager)
+	c.expectEQ(pollResp.Type, dashapi.JobTestPatch)
+	c.expectEQ(pollResp.KernelRepo, build.KernelRepo)
+	c.expectEQ(pollResp.KernelBranch, build.KernelBranch)
+	c.expectEQ(pollResp.Patch, []byte(sampleGitPatch))
 }

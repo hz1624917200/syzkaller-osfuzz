@@ -165,7 +165,7 @@ func compileRegexps(list []string) ([]*regexp.Regexp, error) {
 	for i, str := range list {
 		re, err := regexp.Compile(str)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compile %q: %v", str, err)
+			return nil, fmt.Errorf("failed to compile %q: %w", str, err)
 		}
 		compiled[i] = re
 	}
@@ -804,18 +804,19 @@ var commonOopses = []*oops{
 		},
 		crash.UnknownType,
 	},
-	{
-		[]byte("fatal error:"),
-		[]oopsFormat{
-			{
-				title:        compile("fatal error:(.*)"),
-				fmt:          "fatal error:%[1]v",
-				noStackTrace: true,
-			},
+}
+
+var groupGoRuntimeErrors = oops{
+	[]byte("fatal error:"),
+	[]oopsFormat{
+		{
+			title:        compile("fatal error:"),
+			fmt:          "go runtime error",
+			noStackTrace: true,
 		},
-		[]*regexp.Regexp{
-			compile("ALSA"),
-		},
-		crash.UnknownType,
 	},
+	[]*regexp.Regexp{
+		compile("ALSA"),
+	},
+	crash.UnknownType,
 }

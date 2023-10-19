@@ -171,17 +171,23 @@ type ManagerJobs struct {
 	BisectFix   bool
 }
 
+func (m ManagerJobs) Any() bool {
+	return m.TestPatches || m.BisectCause || m.BisectFix
+}
+
 type JobPollResp struct {
-	ID                string
-	Type              JobType
-	Manager           string
-	KernelRepo        string
-	KernelBranch      string
-	MergeBaseRepo     string
-	MergeBaseBranch   string
+	ID         string
+	Type       JobType
+	Manager    string
+	KernelRepo string
+	// KernelBranch is used for patch testing and serves as the current HEAD
+	// for bisections.
+	KernelBranch    string
+	MergeBaseRepo   string
+	MergeBaseBranch string
+	// Bisection starts from KernelCommit.
 	KernelCommit      string
 	KernelCommitTitle string
-	KernelCommitDate  time.Time
 	KernelConfig      []byte
 	SyzkallerCommit   string
 	Patch             []byte
@@ -345,6 +351,7 @@ type CrashID struct {
 	Corrupted    bool
 	Suppressed   bool
 	MayBeMissing bool
+	ReproLog     []byte
 }
 
 type NeedReproResp struct {
@@ -479,6 +486,7 @@ type BisectResult struct {
 	CrashLogLink    string
 	CrashReportLink string
 	Fix             bool
+	CrossTree       bool
 }
 
 type BugListReport struct {
@@ -632,6 +640,7 @@ type DiscussionMessage struct {
 	ID       string
 	External bool // true if the message is not from the bot itself
 	Time     time.Time
+	Email    string // not saved to the DB
 }
 
 type SaveDiscussionReq struct {
@@ -782,11 +791,12 @@ type LoadFullBugReq struct {
 }
 
 type FullBugInfo struct {
-	SimilarBugs []*SimilarBugInfo
-	BisectCause *BugReport
-	BisectFix   *BugReport
-	Crashes     []*BugReport
-	TreeJobs    []*JobInfo
+	SimilarBugs  []*SimilarBugInfo
+	BisectCause  *BugReport
+	BisectFix    *BugReport
+	Crashes      []*BugReport
+	TreeJobs     []*JobInfo
+	FixCandidate *BugReport
 }
 
 type SimilarBugInfo struct {
@@ -884,6 +894,7 @@ type JobInfo struct {
 	KernelAlias      string
 	KernelCommit     string
 	KernelCommitLink string
+	KernelLink       string
 	PatchLink        string
 	Attempts         int
 	Started          time.Time
@@ -945,7 +956,7 @@ func (dash *Dashboard) queryImpl(method string, req, reply interface{}) error {
 	if req != nil {
 		data, err := json.Marshal(req)
 		if err != nil {
-			return fmt.Errorf("failed to marshal request: %v", err)
+			return fmt.Errorf("failed to marshal request: %w", err)
 		}
 		buf := new(bytes.Buffer)
 		gz := gzip.NewWriter(buf)
@@ -964,7 +975,7 @@ func (dash *Dashboard) queryImpl(method string, req, reply interface{}) error {
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := dash.doer(r)
 	if err != nil {
-		return fmt.Errorf("http request failed: %v", err)
+		return fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -973,7 +984,7 @@ func (dash *Dashboard) queryImpl(method string, req, reply interface{}) error {
 	}
 	if reply != nil {
 		if err := json.NewDecoder(resp.Body).Decode(reply); err != nil {
-			return fmt.Errorf("failed to unmarshal response: %v", err)
+			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
 	}
 	return nil

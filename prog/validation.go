@@ -38,7 +38,7 @@ func (p *Prog) validate() error {
 			return fmt.Errorf("call does not have meta information")
 		}
 		if err := ctx.validateCall(c); err != nil {
-			return fmt.Errorf("call %v: %v", c.Meta.Name, err)
+			return fmt.Errorf("call %v: %w", c.Meta.Name, err)
 		}
 	}
 	for u, orig := range ctx.uses {
@@ -94,17 +94,22 @@ func (ctx *validCtx) validateArg(arg Arg, typ Type, dir Dir) error {
 	if _, ok := typ.(*PtrType); ok {
 		dir = DirIn // pointers are always in
 	}
-	if arg.Dir() != dir {
+	// We used to demand that Arg has exactly the same dir as Type, however,
+	// it leads to problems when dealing with ANYRES* types.
+	// If the resource was DirIn before squashing, we should not demand that
+	// it be DirInOut - it would only lead to mutations that make little sense.
+	// Let's only deny truly conflicting directions, e.g. DirIn vs DirOut.
+	if arg.Dir() != dir && dir != DirInOut {
 		return fmt.Errorf("arg %#v type %v has wrong dir %v, expect %v", arg, arg.Type(), arg.Dir(), dir)
 	}
 	if !ctx.target.isAnyPtr(arg.Type()) && arg.Type() != typ {
 		return fmt.Errorf("bad arg type %#v, expect %#v", arg.Type(), typ)
 	}
 	ctx.args[arg] = true
-	return arg.validate(ctx)
+	return arg.validate(ctx, dir)
 }
 
-func (arg *ConstArg) validate(ctx *validCtx) error {
+func (arg *ConstArg) validate(ctx *validCtx, dir Dir) error {
 	switch typ := arg.Type().(type) {
 	case *IntType:
 		if arg.Dir() == DirOut && !isDefault(arg) {
@@ -135,7 +140,7 @@ func (arg *ConstArg) validate(ctx *validCtx) error {
 	return nil
 }
 
-func (arg *ResultArg) validate(ctx *validCtx) error {
+func (arg *ResultArg) validate(ctx *validCtx, dir Dir) error {
 	typ, ok := arg.Type().(*ResourceType)
 	if !ok {
 		return fmt.Errorf("result arg %v has bad type %v", arg, arg.Type().Name())
@@ -161,10 +166,16 @@ func (arg *ResultArg) validate(ctx *validCtx) error {
 			return fmt.Errorf("result arg '%v' has broken link (%+v)", typ.Name(), arg.Res.uses)
 		}
 	}
+	if arg.Dir() == DirIn && len(arg.uses) > 0 {
+		return fmt.Errorf("result arg '%v' is DirIn, but is used %d times", typ.Name(), len(arg.uses))
+	}
+	if len(arg.uses) > 0 && arg.Size() > 8 {
+		return fmt.Errorf("result arg '%v' is to be copied out, yet it's bigger than int64 (%d > 8)", typ.Name(), arg.Size())
+	}
 	return nil
 }
 
-func (arg *DataArg) validate(ctx *validCtx) error {
+func (arg *DataArg) validate(ctx *validCtx, dir Dir) error {
 	typ, ok := arg.Type().(*BufferType)
 	if !ok {
 		return fmt.Errorf("data arg %v has bad type %v", arg, arg.Type().Name())
@@ -190,7 +201,7 @@ func (arg *DataArg) validate(ctx *validCtx) error {
 	return nil
 }
 
-func (arg *GroupArg) validate(ctx *validCtx) error {
+func (arg *GroupArg) validate(ctx *validCtx, dir Dir) error {
 	switch typ := arg.Type().(type) {
 	case *StructType:
 		if len(arg.Inner) != len(typ.Fields) {
@@ -198,7 +209,7 @@ func (arg *GroupArg) validate(ctx *validCtx) error {
 				typ.Name(), len(typ.Fields), len(arg.Inner))
 		}
 		for i, field := range arg.Inner {
-			if err := ctx.validateArg(field, typ.Fields[i].Type, typ.Fields[i].Dir(arg.Dir())); err != nil {
+			if err := ctx.validateArg(field, typ.Fields[i].Type, typ.Fields[i].Dir(dir)); err != nil {
 				return err
 			}
 		}
@@ -209,7 +220,7 @@ func (arg *GroupArg) validate(ctx *validCtx) error {
 				typ.Name(), len(arg.Inner), typ.RangeBegin)
 		}
 		for _, elem := range arg.Inner {
-			if err := ctx.validateArg(elem, typ.Elem, arg.Dir()); err != nil {
+			if err := ctx.validateArg(elem, typ.Elem, dir); err != nil {
 				return err
 			}
 		}
@@ -219,7 +230,7 @@ func (arg *GroupArg) validate(ctx *validCtx) error {
 	return nil
 }
 
-func (arg *UnionArg) validate(ctx *validCtx) error {
+func (arg *UnionArg) validate(ctx *validCtx, dir Dir) error {
 	typ, ok := arg.Type().(*UnionType)
 	if !ok {
 		return fmt.Errorf("union arg %v has bad type %v", arg, arg.Type().Name())
@@ -228,10 +239,10 @@ func (arg *UnionArg) validate(ctx *validCtx) error {
 		return fmt.Errorf("union arg %v has bad index %v/%v", arg, arg.Index, len(typ.Fields))
 	}
 	opt := typ.Fields[arg.Index]
-	return ctx.validateArg(arg.Option, opt.Type, opt.Dir(arg.Dir()))
+	return ctx.validateArg(arg.Option, opt.Type, opt.Dir(dir))
 }
 
-func (arg *PointerArg) validate(ctx *validCtx) error {
+func (arg *PointerArg) validate(ctx *validCtx, dir Dir) error {
 	switch typ := arg.Type().(type) {
 	case *VmaType:
 		if arg.Res != nil {

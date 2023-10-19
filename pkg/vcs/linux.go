@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -105,40 +104,26 @@ func gitParseReleaseTags(output []byte, includeRC bool) []string {
 }
 
 func gitReleaseTagToInt(tag string, includeRC bool) uint64 {
-	matches := releaseTagRe.FindStringSubmatchIndex(tag)
-	if matches == nil {
+	v1, v2, rc, v3 := ParseReleaseTag(tag)
+	if v1 < 0 {
 		return 0
 	}
-	v1, err := strconv.ParseUint(tag[matches[2]:matches[3]], 10, 64)
-	if err != nil {
-		return 0
+	if v3 < 0 {
+		v3 = 0
 	}
-	v2, err := strconv.ParseUint(tag[matches[4]:matches[5]], 10, 64)
-	if err != nil {
-		return 0
-	}
-	rc := uint64(999)
-	if matches[6] != -1 {
+	if rc >= 0 {
 		if !includeRC {
 			return 0
 		}
-		rc, err = strconv.ParseUint(tag[matches[6]:matches[7]], 10, 64)
-		if err != nil {
-			return 0
-		}
+	} else {
+		rc = 999
 	}
-	var v3 uint64
-	if matches[8] != -1 {
-		v3, err = strconv.ParseUint(tag[matches[8]:matches[9]], 10, 64)
-		if err != nil {
-			return 0
-		}
-	}
-	return v1*1e9 + v2*1e6 + rc*1e3 + v3
+	return uint64(v1)*1e9 + uint64(v2)*1e6 + uint64(rc)*1e3 + uint64(v3)
 }
 
 func (ctx *linux) EnvForCommit(
 	defaultCompiler, compilerType, binDir, commit string, kernelConfig []byte,
+	backports []BackportCommit,
 ) (*BisectEnv, error) {
 	tagList, err := ctx.previousReleaseTags(commit, true, false, false)
 	if err != nil {
@@ -167,24 +152,10 @@ func (ctx *linux) EnvForCommit(
 		Compiler:     compiler,
 		KernelConfig: cf.Serialize(),
 	}
-
-	// Compiling v4.6..v5.11 with a modern objtool, w/o this patch, results in the
-	// following issue, when compiling with clang:
-	// arch/x86/entry/thunk_64.o: warning: objtool: missing symbol table
-	// We don't bisect that far back with neither clang nor gcc, so this should be fine:
-	fix := "1d489151e9f9d1647110277ff77282fe4d96d09b"
-	fixTitle := "objtool: Don't fail on missing symbol table"
-	searchResult, err := ctx.git.GetCommitByTitle(fixTitle)
+	err = linuxFixBackports(ctx.git, backports...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to cherry pick fixes: %w", err)
 	}
-	if searchResult == nil {
-		_, err := ctx.git.git("cherry-pick", "--no-commit", fix)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return env, nil
 }
 
@@ -318,7 +289,7 @@ func (ctx *linux) Minimize(target *targets.Target, original, baseline []byte, ty
 	}
 	kconf, err := kconfig.Parse(target, filepath.Join(ctx.git.dir, "Kconfig"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Kconfig: %v", err)
+		return nil, fmt.Errorf("failed to parse Kconfig: %w", err)
 	}
 	config, err := kconfig.ParseConfigData(original, "original")
 	if err != nil {
@@ -385,7 +356,7 @@ func (ctx *minimizeLinuxCtx) minimizeAgainst(base *kconfig.ConfigFile) error {
 	// Bisection is not getting much faster with smaller configs, only more reliable,
 	// so there's a trade-off. Try to do best in 5 iterations, that's about 1.5 hours.
 	const minimizeRuns = 5
-	minConfig, err := ctx.kconf.Minimize(base, ctx.config, ctx.pred, minimizeRuns, ctx)
+	minConfig, err := ctx.kconf.Minimize(base, ctx.config, ctx.runPred, minimizeRuns, ctx)
 	if err != nil {
 		return err
 	}
@@ -407,7 +378,7 @@ func (ctx *minimizeLinuxCtx) dropInstrumentation(types []crash.Type) error {
 		return nil
 	}
 	ctx.SaveFile("no-instrumentation.config", newConfig.Serialize())
-	ok, err := ctx.pred(newConfig)
+	ok, err := ctx.runPred(newConfig)
 	if err != nil {
 		return err
 	}
@@ -417,6 +388,12 @@ func (ctx *minimizeLinuxCtx) dropInstrumentation(types []crash.Type) error {
 		ctx.config = newConfig
 	}
 	return nil
+}
+
+func (ctx *minimizeLinuxCtx) runPred(cfg *kconfig.ConfigFile) (bool, error) {
+	cfg = cfg.Clone()
+	ctx.transform(cfg)
+	return ctx.pred(cfg)
 }
 
 func (ctx *minimizeLinuxCtx) getConfig() []byte {

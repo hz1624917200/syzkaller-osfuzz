@@ -465,7 +465,7 @@ func (p *parser) parseArgInt(typ Type, dir Dir) (Arg, error) {
 	val := p.Ident()
 	v, err := strconv.ParseUint(val, 0, 64)
 	if err != nil {
-		return nil, fmt.Errorf("wrong arg value '%v': %v", val, err)
+		return nil, fmt.Errorf("wrong arg value '%v': %w", val, err)
 	}
 	switch typ.(type) {
 	case *ConstType, *IntType, *FlagsType, *ProcType, *CsumType:
@@ -660,7 +660,7 @@ func (p *parser) parseArgStruct(typ Type, dir Dir) (Arg, error) {
 	p.Parse('{')
 	t1, ok := typ.(*StructType)
 	if !ok {
-		p.eatExcessive(false, "wrong struct arg")
+		p.eatExcessive(false, "wrong struct arg for %q", typ.Name())
 		p.Parse('}')
 		return typ.DefaultArg(dir), nil
 	}
@@ -728,7 +728,7 @@ func (p *parser) parseArgArray(typ Type, dir Dir) (Arg, error) {
 func (p *parser) parseArgUnion(typ Type, dir Dir) (Arg, error) {
 	t1, ok := typ.(*UnionType)
 	if !ok {
-		p.eatExcessive(true, "wrong union arg")
+		p.eatExcessive(true, "wrong union arg for %q", typ.Name())
 		return typ.DefaultArg(dir), nil
 	}
 	p.Parse('@')
@@ -985,7 +985,7 @@ func (p *parser) deserializeData() ([]byte, bool, error) {
 			p.Parse('"')
 			decoded, err := image.DecodeB64(rawData)
 			if err != nil {
-				return nil, false, fmt.Errorf("data arg is corrupt: %v", err)
+				return nil, false, fmt.Errorf("data arg is corrupt: %w", err)
 			}
 			return decoded, true, nil
 		}

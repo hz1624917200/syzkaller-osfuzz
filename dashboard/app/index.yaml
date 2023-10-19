@@ -115,9 +115,19 @@ indexes:
 - kind: Bug
   properties:
   - name: Namespace
+  - name: SubsystemsRev
+
+- kind: Bug
+  properties:
+  - name: Namespace
   - name: Labels.Label
   - name: Labels.Value
   - name: Status
+
+- kind: Bug
+  properties:
+  - name: Status
+  - name: FixCandidateJob
 
 - kind: Build
   properties:
@@ -223,6 +233,12 @@ indexes:
 
 - kind: Job
   ancestor: yes
+  properties:
+  - name: Type
+  - name: Finished
+    direction: desc
+
+- kind: Job
   properties:
   - name: Type
   - name: Finished

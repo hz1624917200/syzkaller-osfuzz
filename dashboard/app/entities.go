@@ -123,6 +123,9 @@ type Bug struct {
 	Labels         []BugLabel
 	DiscussionInfo []BugDiscussionInfo
 	TreeTests      BugTreeTestInfo
+	// FixCandidateJob holds the key of the latest successful cross-tree fix bisection job.
+	FixCandidateJob string
+	ReproAttempts   []BugReproAttempt
 }
 
 type BugTreeTestInfo struct {
@@ -170,6 +173,13 @@ func (label BugLabel) String() string {
 	return string(label.Label) + ":" + label.Value
 }
 
+// BugReproAttempt describes a single attempt to generate a repro for a bug.
+type BugReproAttempt struct {
+	Time    time.Time
+	Manager string
+	Log     int64
+}
+
 func (bug *Bug) SetAutoSubsystems(c context.Context, list []*subsystem.Subsystem, now time.Time, rev int) {
 	bug.SubsystemsRev = rev
 	bug.SubsystemsTime = now
@@ -184,14 +194,14 @@ func updateSingleBug(c context.Context, bugKey *db.Key, transform func(*Bug) err
 	tx := func(c context.Context) error {
 		bug := new(Bug)
 		if err := db.Get(c, bugKey, bug); err != nil {
-			return fmt.Errorf("failed to get bug: %v", err)
+			return fmt.Errorf("failed to get bug: %w", err)
 		}
 		err := transform(bug)
 		if err != nil {
 			return err
 		}
 		if _, err := db.Put(c, bugKey, bug); err != nil {
-			return fmt.Errorf("failed to put bug: %v", err)
+			return fmt.Errorf("failed to put bug: %w", err)
 		}
 		return nil
 	}
@@ -559,6 +569,10 @@ type Job struct {
 	MergeBaseRepo   string
 	MergeBaseBranch string
 
+	// By default, bisection starts from the revision of the associated crash.
+	// The BisectFrom field can override this.
+	BisectFrom string
+
 	// Result of execution:
 	CrashTitle  string // if empty, we did not hit crash during testing
 	CrashLog    int64  // reference to CrashLog text entity
@@ -571,6 +585,10 @@ type Job struct {
 
 	Reported      bool   // have we reported result back to user?
 	InvalidatedBy string // user who marked this bug as invalid, empty by default
+}
+
+func (job *Job) IsBisection() bool {
+	return job.Type == JobBisectCause || job.Type == JobBisectFix
 }
 
 func (job *Job) IsFinished() bool {
@@ -610,6 +628,10 @@ func (job *Job) isUnreliableBisect() bool {
 		job.Flags&dashapi.BisectResultIgnore != 0
 }
 
+func (job *Job) IsCrossTree() bool {
+	return job.MergeBaseRepo != "" && job.IsBisection()
+}
+
 // Text holds text blobs (crash logs, reports, reproducers, etc).
 type Text struct {
 	Namespace string
@@ -626,6 +648,7 @@ const (
 	textPatch        = "Patch"
 	textLog          = "Log"
 	textError        = "Error"
+	textReproLog     = "ReproLog"
 )
 
 const (
@@ -694,7 +717,7 @@ func loadManager(c context.Context, ns, name string) (*Manager, error) {
 	mgr := new(Manager)
 	if err := db.Get(c, mgrKey(c, ns, name), mgr); err != nil {
 		if err != db.ErrNoSuchEntity {
-			return nil, fmt.Errorf("failed to get manager %v/%v: %v", ns, name, err)
+			return nil, fmt.Errorf("failed to get manager %v/%v: %w", ns, name, err)
 		}
 		mgr = &Manager{
 			Namespace: ns,
@@ -717,7 +740,7 @@ func updateManager(c context.Context, ns, name string, fn func(mgr *Manager, sta
 		statsKey := db.NewKey(c, "ManagerStats", "", int64(date), mgrKey)
 		if err := db.Get(c, statsKey, stats); err != nil {
 			if err != db.ErrNoSuchEntity {
-				return fmt.Errorf("failed to get stats %v/%v/%v: %v", ns, name, date, err)
+				return fmt.Errorf("failed to get stats %v/%v/%v: %w", ns, name, date, err)
 			}
 			stats = &ManagerStats{
 				Date: date,
@@ -729,10 +752,10 @@ func updateManager(c context.Context, ns, name string, fn func(mgr *Manager, sta
 		}
 
 		if _, err := db.Put(c, mgrKey, mgr); err != nil {
-			return fmt.Errorf("failed to put manager: %v", err)
+			return fmt.Errorf("failed to put manager: %w", err)
 		}
 		if _, err := db.Put(c, statsKey, stats); err != nil {
-			return fmt.Errorf("failed to put manager stats: %v", err)
+			return fmt.Errorf("failed to put manager stats: %w", err)
 		}
 		return nil
 	}
@@ -747,12 +770,12 @@ func loadAllManagers(c context.Context, ns string) ([]*Manager, []*db.Key, error
 	}
 	keys, err := query.GetAll(c, &managers)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query managers: %v", err)
+		return nil, nil, fmt.Errorf("failed to query managers: %w", err)
 	}
 	var result []*Manager
 	var resultKeys []*db.Key
 	for i, mgr := range managers {
-		if config.Namespaces[mgr.Namespace].Managers[mgr.Name].Decommissioned {
+		if getNsConfig(c, mgr.Namespace).Managers[mgr.Name].Decommissioned {
 			continue
 		}
 		result = append(result, mgr)
@@ -775,7 +798,7 @@ func loadBuild(c context.Context, ns, id string) (*Build, error) {
 		if err == db.ErrNoSuchEntity {
 			return nil, fmt.Errorf("unknown build %v/%v", ns, id)
 		}
-		return nil, fmt.Errorf("failed to get build %v/%v: %v", ns, id, err)
+		return nil, fmt.Errorf("failed to get build %v/%v: %w", ns, id, err)
 	}
 	return build, nil
 }
@@ -809,7 +832,7 @@ func splitDisplayTitle(display string) (string, int64, error) {
 	seqStr := display[match[4]:match[5]]
 	seq, err := strconv.ParseInt(seqStr, 10, 64)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to parse bug title: %v", err)
+		return "", 0, fmt.Errorf("failed to parse bug title: %w", err)
 	}
 	if seq <= 0 || seq > 1e6 {
 		return "", 0, fmt.Errorf("failed to parse bug title: seq=%v", seq)
@@ -825,29 +848,29 @@ func canonicalBug(c context.Context, bug *Bug) (*Bug, error) {
 		canon := new(Bug)
 		bugKey := db.NewKey(c, "Bug", bug.DupOf, 0, nil)
 		if err := db.Get(c, bugKey, canon); err != nil {
-			return nil, fmt.Errorf("failed to get dup bug %q for %q: %v",
-				bug.DupOf, bug.keyHash(), err)
+			return nil, fmt.Errorf("failed to get dup bug %q for %q: %w",
+				bug.DupOf, bug.keyHash(c), err)
 		}
 		bug = canon
 	}
 }
 
 func (bug *Bug) key(c context.Context) *db.Key {
-	return db.NewKey(c, "Bug", bug.keyHash(), 0, nil)
+	return db.NewKey(c, "Bug", bug.keyHash(c), 0, nil)
 }
 
-func (bug *Bug) keyHash() string {
-	return bugKeyHash(bug.Namespace, bug.Title, bug.Seq)
+func (bug *Bug) keyHash(c context.Context) string {
+	return bugKeyHash(c, bug.Namespace, bug.Title, bug.Seq)
 }
 
-func bugKeyHash(ns, title string, seq int64) string {
-	return hash.String([]byte(fmt.Sprintf("%v-%v-%v-%v", config.Namespaces[ns].Key, ns, title, seq)))
+func bugKeyHash(c context.Context, ns, title string, seq int64) string {
+	return hash.String([]byte(fmt.Sprintf("%v-%v-%v-%v", getNsConfig(c, ns).Key, ns, title, seq)))
 }
 
 func loadSimilarBugs(c context.Context, bug *Bug) ([]*Bug, error) {
-	domain := config.Namespaces[bug.Namespace].SimilarityDomain
+	domain := getNsConfig(c, bug.Namespace).SimilarityDomain
 	dedup := make(map[string]bool)
-	dedup[bug.keyHash()] = true
+	dedup[bug.keyHash(c)] = true
 
 	ret := []*Bug{}
 	for _, title := range bug.AltTitles {
@@ -859,11 +882,11 @@ func loadSimilarBugs(c context.Context, bug *Bug) ([]*Bug, error) {
 			return nil, err
 		}
 		for _, bug := range similar {
-			if config.Namespaces[bug.Namespace].SimilarityDomain != domain ||
-				dedup[bug.keyHash()] {
+			if getNsConfig(c, bug.Namespace).SimilarityDomain != domain ||
+				dedup[bug.keyHash(c)] {
 				continue
 			}
-			dedup[bug.keyHash()] = true
+			dedup[bug.keyHash(c)] = true
 			ret = append(ret, bug)
 		}
 	}
@@ -949,11 +972,11 @@ func addCrashReference(c context.Context, crashID int64, bugKey *db.Key, ref Cra
 	crash := new(Crash)
 	crashKey := db.NewKey(c, "Crash", "", crashID, bugKey)
 	if err := db.Get(c, crashKey, crash); err != nil {
-		return fmt.Errorf("failed to get reported crash %v: %v", crashID, err)
+		return fmt.Errorf("failed to get reported crash %v: %w", crashID, err)
 	}
 	crash.AddReference(ref)
 	if _, err := db.Put(c, crashKey, crash); err != nil {
-		return fmt.Errorf("failed to put reported crash %v: %v", crashID, err)
+		return fmt.Errorf("failed to put reported crash %v: %w", crashID, err)
 	}
 	return nil
 }
@@ -963,11 +986,11 @@ func removeCrashReference(c context.Context, crashID int64, bugKey *db.Key,
 	crash := new(Crash)
 	crashKey := db.NewKey(c, "Crash", "", crashID, bugKey)
 	if err := db.Get(c, crashKey, crash); err != nil {
-		return fmt.Errorf("failed to get reported crash %v: %v", crashID, err)
+		return fmt.Errorf("failed to get reported crash %v: %w", crashID, err)
 	}
 	crash.ClearReference(t, key)
 	if _, err := db.Put(c, crashKey, crash); err != nil {
-		return fmt.Errorf("failed to put reported crash %v: %v", crashID, err)
+		return fmt.Errorf("failed to put reported crash %v: %w", crashID, err)
 	}
 	return nil
 }
@@ -978,7 +1001,7 @@ func kernelRepoInfo(c context.Context, build *Build) KernelRepo {
 
 func kernelRepoInfoRaw(c context.Context, ns, url, branch string) KernelRepo {
 	var info KernelRepo
-	for _, repo := range getKernelRepos(c, ns) {
+	for _, repo := range getNsConfig(c, ns).Repos {
 		if repo.URL == url && repo.Branch == branch {
 			info = repo
 			break

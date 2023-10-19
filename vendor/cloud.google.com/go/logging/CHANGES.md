@@ -1,5 +1,43 @@
 # Changes
 
+## [1.8.1](https://github.com/googleapis/google-cloud-go/compare/logging/v1.8.0...logging/v1.8.1) (2023-08-14)
+
+
+### Bug Fixes
+
+* **logging:** Init default retryer ([#8415](https://github.com/googleapis/google-cloud-go/issues/8415)) ([c980708](https://github.com/googleapis/google-cloud-go/commit/c980708c5f69f69c21632250a96f4f2c2e87f697))
+
+## [1.8.0](https://github.com/googleapis/google-cloud-go/compare/logging/v1.7.0...logging/v1.8.0) (2023-08-09)
+
+
+### Features
+
+* **logging:** Log Analytics features of the Cloud Logging API feat: Add ConfigServiceV2.CreateBucketAsync method for creating Log Buckets asynchronously feat: Add ConfigServiceV2.UpdateBucketAsync method for creating Log Buckets asynchronously feat: Add ConfigServiceV2.CreateLink method for creating linked datasets for Log Analytics Buckets feat: Add ConfigServiceV2.DeleteLink method for deleting linked datasets feat: Add ConfigServiceV2.ListLinks method for listing linked datasets feat: Add ConfigServiceV2.GetLink methods for describing linked datasets feat: Add LogBucket.analytics_enabled field that specifies whether Log Bucket's Analytics features are enabled feat: Add LogBucket.index_configs field that contains a list of Log Bucket's indexed fields and related configuration data docs: Documentation for the Log Analytics features of the Cloud Logging API ([31c3766](https://github.com/googleapis/google-cloud-go/commit/31c3766c9c4cab411669c14fc1a30bd6d2e3f2dd))
+* **logging:** Update all direct dependencies ([b340d03](https://github.com/googleapis/google-cloud-go/commit/b340d030f2b52a4ce48846ce63984b28583abde6))
+
+
+### Bug Fixes
+
+* **logging/logadmin:** Fix paging example filter ([#8224](https://github.com/googleapis/google-cloud-go/issues/8224)) ([710c627](https://github.com/googleapis/google-cloud-go/commit/710c627b2cf46b8b2e83ff02e020700b3281e498))
+* **logging:** REST query UpdateMask bug ([df52820](https://github.com/googleapis/google-cloud-go/commit/df52820b0e7721954809a8aa8700b93c5662dc9b))
+* **logging:** Update grpc to v1.55.0 ([1147ce0](https://github.com/googleapis/google-cloud-go/commit/1147ce02a990276ca4f8ab7a1ab65c14da4450ef))
+* **logging:** Use fieldmask directly instead of field_mask genproto alias ([#8031](https://github.com/googleapis/google-cloud-go/issues/8031)) ([13d9483](https://github.com/googleapis/google-cloud-go/commit/13d9483ddcfef20ea6dcdb3db5f4560c11c15c09))
+
+## [1.7.0](https://github.com/googleapis/google-cloud-go/compare/logging/v1.6.1...logging/v1.7.0) (2023-02-27)
+
+
+### Features
+
+* **logging:** Add (*Logger). StandardLoggerFromTemplate() method. ([#7261](https://github.com/googleapis/google-cloud-go/issues/7261)) ([533ecbb](https://github.com/googleapis/google-cloud-go/commit/533ecbb19a2833e667ad139a6604fd40dfb43cdc))
+* **logging:** Add REST client ([06a54a1](https://github.com/googleapis/google-cloud-go/commit/06a54a16a5866cce966547c51e203b9e09a25bc0))
+* **logging:** Rewrite signatures and type in terms of new location ([620e6d8](https://github.com/googleapis/google-cloud-go/commit/620e6d828ad8641663ae351bfccfe46281e817ad))
+
+
+### Bug Fixes
+
+* **logging:** Correctly populate SourceLocation when logging via (*Logger).StandardLogger ([#7320](https://github.com/googleapis/google-cloud-go/issues/7320)) ([1a0bd13](https://github.com/googleapis/google-cloud-go/commit/1a0bd13b88569826f4ee6528e9cdb59fd26914fa))
+* **logging:** Fix typo in README.md ([#7297](https://github.com/googleapis/google-cloud-go/issues/7297)) ([82aa2ee](https://github.com/googleapis/google-cloud-go/commit/82aa2ee9381f793bd731f1b6789fc18e4b671bd7))
+
 ## [1.6.1](https://github.com/googleapis/google-cloud-go/compare/logging/v1.6.0...logging/v1.6.1) (2022-12-02)
 
 

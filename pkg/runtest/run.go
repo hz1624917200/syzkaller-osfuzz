@@ -13,6 +13,7 @@ package runtest
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,7 +177,7 @@ func (ctx *Context) generatePrograms(progs chan *RunRequest) error {
 func progFileList(dir, filter string) ([]string, error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %v: %v", dir, err)
+		return nil, fmt.Errorf("failed to read %v: %w", dir, err)
 	}
 	var res []string
 	for _, file := range files {
@@ -276,7 +277,7 @@ nextSandbox:
 func parseProg(target *prog.Target, dir, filename string) (*prog.Prog, map[string]bool, *ipc.ProgInfo, error) {
 	data, err := os.ReadFile(filepath.Join(dir, filename))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read %v: %v", filename, err)
+		return nil, nil, nil, fmt.Errorf("failed to read %v: %w", filename, err)
 	}
 	requires := parseRequires(data)
 	// Need to check arch requirement early as some programs
@@ -286,7 +287,7 @@ func parseProg(target *prog.Target, dir, filename string) (*prog.Prog, map[strin
 	}
 	p, err := target.Deserialize(data, prog.Strict)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to deserialize %v: %v", filename, err)
+		return nil, nil, nil, fmt.Errorf("failed to deserialize %v: %w", filename, err)
 	}
 	errnos := map[string]int{
 		"":           0,
@@ -488,11 +489,11 @@ func (ctx *Context) createCTest(p *prog.Prog, sandbox string, threaded bool, tim
 	}
 	src, err := csource.Write(p, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create C source: %v", err)
+		return nil, fmt.Errorf("failed to create C source: %w", err)
 	}
 	bin, err := csource.Build(p.Target, src)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build C program: %v", err)
+		return nil, fmt.Errorf("failed to build C program: %w", err)
 	}
 	var ipcFlags ipc.ExecFlags
 	if threaded {
@@ -654,14 +655,14 @@ func RunTest(req *RunRequest, executor string) {
 			var err error
 			env, err = ipc.MakeEnv(req.Cfg, 0)
 			if err != nil {
-				req.Err = fmt.Errorf("failed to create ipc env: %v", err)
+				req.Err = fmt.Errorf("failed to create ipc env: %w", err)
 				return
 			}
 		}
 		output, info, hanged, err := env.Exec(req.Opts, req.P)
 		req.Output = append(req.Output, output...)
 		if err != nil {
-			req.Err = fmt.Errorf("run %v: failed to run: %v", run, err)
+			req.Err = fmt.Errorf("run %v: failed to run: %w", run, err)
 			return
 		}
 		if hanged {
@@ -682,7 +683,7 @@ func RunTest(req *RunRequest, executor string) {
 func runTestC(req *RunRequest) {
 	tmpDir, err := os.MkdirTemp("", "syz-runtest")
 	if err != nil {
-		req.Err = fmt.Errorf("failed to create temp dir: %v", err)
+		req.Err = fmt.Errorf("failed to create temp dir: %w", err)
 		return
 	}
 	defer os.RemoveAll(tmpDir)
@@ -691,7 +692,8 @@ func runTestC(req *RunRequest) {
 	// Tell ASAN to not mess with our NONFAILING.
 	cmd.Env = append(append([]string{}, os.Environ()...), "ASAN_OPTIONS=handle_segv=0 allow_user_segv_handler=1")
 	req.Output, req.Err = osutil.Run(20*time.Second, cmd)
-	if verr, ok := req.Err.(*osutil.VerboseError); ok {
+	var verr *osutil.VerboseError
+	if errors.As(req.Err, &verr) {
 		// The process can legitimately do something like exit_group(1).
 		// So we ignore the error and rely on the rest of the checks (e.g. syscall return values).
 		req.Err = nil

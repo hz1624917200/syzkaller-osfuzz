@@ -70,6 +70,10 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 						<span style="color:ForestGreen;">🐞</span> Fixed [{{$.BugCounts.Fixed}}]</a>
 					<a class="navigation_tab{{if eq .URLPath (printf "/%v/invalid" $.Namespace)}}_selected{{end}}" href='/{{$.Namespace}}/invalid'>
 						<span style="color:RoyalBlue;">🐞</span> Invalid [{{$.BugCounts.Invalid}}]</a>
+					{{if gt .MissingBackports 0}}
+                                        <a class="navigation_tab{{if eq .URLPath (printf "/%v/backports" $.Namespace)}}_selected{{end}}" href='/{{$.Namespace}}/backports'>
+						<span style="color:ForestGreen;">⬇</span> Missing Backports [{{$.MissingBackports}}]</a>
+					{{end}}
 					<a class="navigation_tab{{if eq .URLPath (printf "/%v/graph/bugs" $.Namespace)}}_selected{{end}}" href='/{{$.Namespace}}/graph/bugs'>
 						<span style="color:DarkOrange;">📈</span> Kernel Health</a>
 					<a class="navigation_tab{{if eq .URLPath (printf "/%v/graph/lifetimes" $.Namespace)}}_selected{{end}}" href='/{{$.Namespace}}/graph/lifetimes'>
@@ -313,24 +317,32 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 {{/* Show bisection results */}}
 {{define "bisect_results"}}
 {{if .}}
-	<br>
 	{{$causeJob := 1}}
 	{{$fixJob := 2}}
 	{{if .ErrorLink}}
 		{{if eq .Type $causeJob}}
 			<b>Cause bisection: failed</b>
 		{{else if eq .Type $fixJob}}
-			<b>Fix bisection: failed</b>
+			{{if .FixCandidate}}
+				<b>Fix candidate bisection: failed</b>
+			{{else}}
+			        <b>Fix bisection: failed</b>
+			{{end}}
 		{{end}}
 		<b>({{link .ErrorLink "error log"}}{{if .LogLink}}, {{link .LogLink "bisect log"}}{{end}})</b><br>
 	{{else if .Commit}}
 		{{if eq .Type $causeJob}}
 			<b>Cause bisection: introduced by</b>
 		{{else if eq .Type $fixJob}}
-			<b>Fix bisection: fixed by</b>
+			{{if .FixCandidate}}
+				<b>Fix commit to backport</b>
+			{{else}}
+			        <b>Fix bisection: fixed by</b>
+			{{end}}
 		{{end}}
 		<b>({{link .LogLink "bisect log"}})</b> <span class="bad">{{print .Flags}}</span>:<br>
 		<span class="mono">
+		{{if .FixCandidate}}tree: {{link .KernelLink .KernelAlias}}<br>{{end}}
 		commit {{.Commit.Hash}}<br>
 		Author: {{.Commit.Author}}<br>
 		Date:   {{formatKernelTime .Commit.Date}}<br>
@@ -341,8 +353,9 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 		{{if eq .Type $causeJob}}
 			<b>Cause bisection: the cause commit could be any of</b>
 		{{else if eq .Type $fixJob}}
-			<b>Fix bisection: the fix commit could be any of</b>
-		{{end}}
+			<b>{{if .FixCandidate}}Fix candidate detection{{else}}Fix bisection{{end}}
+			the fix commit could be any of</b>
+			{{end}}
 		<b>({{link .LogLink "bisect log"}}):</b><br>
 		<span class="mono">
 		{{range $com := .Commits}}
@@ -353,7 +366,8 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 		{{if eq .Type $causeJob}}
 			<b>Cause bisection: the issue happens on the oldest tested release</b>
 		{{else if eq .Type $fixJob}}
-			<b>Fix bisection: the issue occurs on the latest tested release</b>
+			<b>{{if .FixCandidate}}Fix candidate detection:{{else}}Fix bisection:{{end}}
+			the issue occurs on the latest tested release</b>
 		{{end}}
 		<b>({{link .LogLink "bisect log"}})</b><br>
 	{{end}}
@@ -365,7 +379,8 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 	{{end}}
 
 	{{if not .Reported}}[report pending]<br>{{end}}
-	{{optlink .InvalidateJobLink "❌ retry this bisection"}}
+	{{optlink .RestartJobLink "🔄 retry this bisection"}}&nbsp;&nbsp;
+	{{optlink .InvalidateJobLink "❌ mark as invalid"}}
 {{end}}
 {{end}}
 
@@ -387,7 +402,7 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 			<th><a onclick="return sortTable(this, 'Syz repro', reproSort)" href="#">Syz repro</a></th>
 			<th><a onclick="return sortTable(this, 'C repro', textSort)" href="#">C repro</a></th>
 			<th><a onclick="return sortTable(this, 'VM info', textSort)" href="#">VM info</a></th>
-			<th><a onclick="return sortTable(this, 'Assets', textSort)" href="#">Assets</a></th>
+			<th><a onclick="return sortTable(this, 'Assets', textSort)" href="#">Assets</a> (<a href="https://github.com/google/syzkaller/blob/master/docs/syzbot_assets.md">help?</a>)</th>
 			<th><a onclick="return sortTable(this, 'Manager', textSort)" href="#">Manager</a></th>
 			<th><a onclick="return sortTable(this, 'Title', textSort)" href="#">Title</a></th>
 		</tr>
@@ -423,7 +438,7 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 
 {{/* List of jobs, invoked with *uiJobList */}}
 {{define "job_list"}}
-{{if $.Jobs}}
+{{if and $ $.Jobs}}
 	<table class="list_table">
 		<caption id="jobs"><a class="plain" href="#jobs">{{$.Title}}</a></caption>
 		<thead>
@@ -454,7 +469,7 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 					{{else if eq $job.Type 1}}
 						bisect
 					{{else if eq $job.Type 2}}
-						bisect fix
+						{{if $job.FixCandidate}}fix candidate{{else}}bisect fix{{end}}
 					{{end}}
 				</td>
 				<td>{{optlink $job.PatchLink "patch"}}</td>
@@ -463,7 +478,8 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 				<td class="result">
 					{{if $job.ErrorLink}}
 						{{link $job.ErrorLink "error"}}
-					{{else if $job.LogLink}}
+					{{end}}
+					{{if $job.LogLink}}
 						{{link $job.LogLink "job log"}}
 						({{if $job.Commit}}1{{else}}{{len $job.Commits}}{{end}})
 					{{else if $job.CrashTitle}}
@@ -481,6 +497,7 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 					{{ if $job.InvalidatedBy }}
 						</br>marked invalid by {{$job.InvalidatedBy}}
 					{{end}}
+					{{if and $.PerBug (or .InvalidateJobLink .RestartJobLink)}}<br/>{{optlink .RestartJobLink "🔄 retry this bisection"}}&nbsp;&nbsp;{{optlink .InvalidateJobLink "❌ mark as invalid"}}{{end}}
 				</td>
 			</tr>
 		{{end}}
@@ -586,6 +603,30 @@ Use of this source code is governed by Apache 2 LICENSE that can be found in the
 			{{else}}
 			<td class="status-ok">Didn't crash</td>
                         {{end}}
+		</tr>
+	{{end}}
+	</tbody>
+</table>
+{{end}}
+{{end}}
+
+{{/* List of failed repro attempts, invoked with []*uiReproAttempt */}}
+{{define "repro_attempts"}}
+{{if .}}
+<table class="list_table">
+	<thead>
+	<tr>
+		<th>Time</th>
+		<th>Manager</th>
+		<th>Log</th>
+	</tr>
+	</thead>
+	<tbody>
+	{{range $item := .}}
+		<tr>
+			<td>{{formatTime $item.Time}}</td>
+			<td class="stat">{{$item.Manager}}</td>
+			<td class="stat">{{link $item.LogLink "repro log"}}</td>
 		</tr>
 	{{end}}
 	</tbody>

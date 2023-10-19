@@ -5,7 +5,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/stretchr/testify/assert"
@@ -253,7 +256,7 @@ func TestMultiLabelFilter(t *testing.T) {
 	defer c.Close()
 
 	client := c.makeClient(clientPublicEmail, keyPublicEmail, true)
-	mailingList := config.Namespaces["access-public-email"].Reporting[0].Config.(*EmailConfig).Email
+	mailingList := c.config().Namespaces["access-public-email"].Reporting[0].Config.(*EmailConfig).Email
 
 	build1 := testBuild(1)
 	build1.Manager = "manager-name-123"
@@ -294,4 +297,60 @@ func TestMultiLabelFilter(t *testing.T) {
 	// Ensure we provide links that drop labels.
 	assert.NotContains(t, string(reply), "/access-public-email?label=subsystems:subsystemA\"")
 	assert.NotContains(t, string(reply), "/access-public-email?label=prop:low\"")
+}
+
+func TestAdminJobList(t *testing.T) {
+	c := NewCtx(t)
+	defer c.Close()
+
+	client := c.client2
+	build := testBuild(1)
+	client.UploadBuild(build)
+
+	crash := testCrash(build, 1)
+	crash.Title = "some bug title"
+	crash.GuiltyFiles = []string{"a.c"}
+	crash.ReproOpts = []byte("repro opts")
+	crash.ReproSyz = []byte("repro syz")
+	crash.ReproC = []byte("repro C")
+	client.ReportCrash(crash)
+	client.pollEmailBug()
+
+	c.advanceTime(24 * time.Hour)
+
+	pollResp := client.pollSpecificJobs(build.Manager, dashapi.ManagerJobs{BisectCause: true})
+	c.expectNE(pollResp.ID, "")
+
+	causeJobsLink := "/admin?job_type=1"
+	fixJobsLink := "/admin?job_type=2"
+	reply, err := c.AuthGET(AccessAdmin, "/admin")
+	c.expectOK(err)
+	assert.Contains(t, string(reply), causeJobsLink)
+	assert.Contains(t, string(reply), fixJobsLink)
+
+	// Verify the bug is in the bisect cause jobs list.
+	reply, err = c.AuthGET(AccessAdmin, causeJobsLink)
+	c.expectOK(err)
+	assert.Contains(t, string(reply), crash.Title)
+
+	// Verify the bug is NOT in the fix jobs list.
+	reply, err = c.AuthGET(AccessAdmin, fixJobsLink)
+	c.expectOK(err)
+	assert.NotContains(t, string(reply), crash.Title)
+}
+
+func TestSubsystemsPageRedirect(t *testing.T) {
+	c := NewCtx(t)
+	defer c.Close()
+
+	// Verify that the normal subsystem page works.
+	_, err := c.AuthGET(AccessAdmin, "/access-public-email/s/subsystemA")
+	c.expectOK(err)
+
+	// Verify that the old subsystem name points to the new one.
+	_, err = c.AuthGET(AccessAdmin, "/access-public-email/s/oldSubsystem")
+	var httpErr *HTTPError
+	c.expectTrue(errors.As(err, &httpErr))
+	c.expectEQ(httpErr.Code, http.StatusMovedPermanently)
+	c.expectEQ(httpErr.Headers["Location"], []string{"/access-public-email/s/subsystemA"})
 }

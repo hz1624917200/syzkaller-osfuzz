@@ -63,7 +63,7 @@ func accessLevel(c context.Context, r *http.Request) AccessLevel {
 	if u == nil ||
 		// Devappserver does not pass AuthDomain.
 		u.AuthDomain != "gmail.com" && !isBrokenAuthDomainInTest ||
-		!strings.HasSuffix(u.Email, config.AuthDomain) {
+		!strings.HasSuffix(u.Email, getConfig(c).AuthDomain) {
 		return AccessPublic
 	}
 	return AccessUser
@@ -113,21 +113,21 @@ func checkCrashTextAccess(c context.Context, r *http.Request, field string, id i
 		Filter(field+"=", id).
 		GetAll(c, &crashes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query crashes: %v", err)
+		return nil, nil, fmt.Errorf("failed to query crashes: %w", err)
 	}
 	if len(crashes) != 1 {
 		err := fmt.Errorf("checkCrashTextAccess: found %v crashes for %v=%v", len(crashes), field, id)
 		if len(crashes) == 0 {
-			err = fmt.Errorf("%w: %v", ErrClientNotFound, err)
+			err = fmt.Errorf("%w: %w", ErrClientNotFound, err)
 		}
 		return nil, nil, err
 	}
 	crash := crashes[0]
 	bug := new(Bug)
 	if err := db.Get(c, keys[0].Parent(), bug); err != nil {
-		return nil, nil, fmt.Errorf("failed to get bug: %v", err)
+		return nil, nil, fmt.Errorf("failed to get bug: %w", err)
 	}
-	bugLevel := bug.sanitizeAccess(accessLevel(c, r))
+	bugLevel := bug.sanitizeAccess(c, accessLevel(c, r))
 	return bug, crash, checkAccessLevel(c, r, bugLevel)
 }
 
@@ -137,25 +137,26 @@ func checkJobTextAccess(c context.Context, r *http.Request, field string, id int
 		KeysOnly().
 		GetAll(c, nil)
 	if err != nil {
-		return fmt.Errorf("failed to query jobs: %v", err)
+		return fmt.Errorf("failed to query jobs: %w", err)
 	}
 	if len(keys) != 1 {
 		err := fmt.Errorf("checkJobTextAccess: found %v jobs for %v=%v", len(keys), field, id)
 		if len(keys) == 0 {
 			// This can be triggered by bad user requests, so don't log the error.
-			err = fmt.Errorf("%w: %v", ErrClientNotFound, err)
+			err = fmt.Errorf("%w: %w", ErrClientNotFound, err)
 		}
 		return err
 	}
 	bug := new(Bug)
 	if err := db.Get(c, keys[0].Parent(), bug); err != nil {
-		return fmt.Errorf("failed to get bug: %v", err)
+		return fmt.Errorf("failed to get bug: %w", err)
 	}
-	bugLevel := bug.sanitizeAccess(accessLevel(c, r))
+	bugLevel := bug.sanitizeAccess(c, accessLevel(c, r))
 	return checkAccessLevel(c, r, bugLevel)
 }
 
-func (bug *Bug) sanitizeAccess(currentLevel AccessLevel) AccessLevel {
+func (bug *Bug) sanitizeAccess(c context.Context, currentLevel AccessLevel) AccessLevel {
+	config := getConfig(c)
 	for ri := len(bug.Reporting) - 1; ri >= 0; ri-- {
 		bugReporting := &bug.Reporting[ri]
 		if ri == 0 || !bugReporting.Reported.IsZero() {

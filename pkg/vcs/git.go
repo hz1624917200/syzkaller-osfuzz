@@ -6,6 +6,7 @@ package vcs
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"net/mail"
 	"os"
@@ -144,6 +145,18 @@ func (git *git) fetchRemote(repo string) error {
 	// Ignore error as we can double add the same remote and that will fail.
 	git.git("remote", "add", repoHash, repo)
 	_, err := git.git("fetch", "--force", "--tags", repoHash)
+	if err != nil {
+		var verbose *osutil.VerboseError
+		if errors.As(err, &verbose) &&
+			bytes.Contains(verbose.Output, []byte("error: cannot lock ref")) {
+			// It can happen that the fetched repo has tags names that conflict
+			// with the ones already present in the repository.
+			// Try to fetch more, but this time prune tags, it should help.
+			// The --prune-tags option will remove all tags that are not present
+			// in this remote repo, so don't do it always. Only when necessary.
+			_, err = git.git("fetch", "--force", "--tags", "--prune", "--prune-tags", repoHash)
+		}
+	}
 	return err
 }
 
@@ -202,10 +215,10 @@ func (git *git) initRepo(reason error) error {
 		log.Logf(1, "git: initializing repo at %v: %v", git.dir, reason)
 	}
 	if err := os.RemoveAll(git.dir); err != nil {
-		return fmt.Errorf("failed to remove repo dir: %v", err)
+		return fmt.Errorf("failed to remove repo dir: %w", err)
 	}
 	if err := osutil.MkdirAll(git.dir); err != nil {
-		return fmt.Errorf("failed to create repo dir: %v", err)
+		return fmt.Errorf("failed to create repo dir: %w", err)
 	}
 	if git.sandbox {
 		if err := osutil.SandboxChown(git.dir); err != nil {
@@ -243,11 +256,11 @@ func gitParseCommit(output, user, domain []byte, ignoreCC map[string]bool) (*Com
 	const dateFormat = "Mon Jan 2 15:04:05 2006 -0700"
 	date, err := time.Parse(dateFormat, string(lines[4]))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse date in git log output: %v\n%q", err, output)
+		return nil, fmt.Errorf("failed to parse date in git log output: %w\n%q", err, output)
 	}
 	commitDate, err := time.Parse(dateFormat, string(lines[6]))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse date in git log output: %v\n%q", err, output)
+		return nil, fmt.Errorf("failed to parse date in git log output: %w\n%q", err, output)
 	}
 	recipients := make(map[string]bool)
 	recipients[strings.ToLower(string(lines[2]))] = true
@@ -375,7 +388,7 @@ func (git *git) ListCommitHashes(baseCommit string) ([]string, error) {
 func (git *git) ExtractFixTagsFromCommits(baseCommit, email string) ([]*Commit, error) {
 	user, domain, err := splitEmail(email)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse email %q: %v", email, err)
+		return nil, fmt.Errorf("failed to parse email %q: %w", email, err)
 	}
 	grep := user + "+.*" + domain
 	since := time.Now().Add(-time.Hour * 24 * 365 * fetchCommitsMaxAgeInYears).Format("01-02-2006")
