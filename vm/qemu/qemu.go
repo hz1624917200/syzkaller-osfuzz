@@ -130,11 +130,12 @@ var archConfigs = map[string]*archConfig{
 		// Initialization of device e1000e failed: failed to find romfile "efi-e1000e.rom
 		// But other arches don't use e1000e, e.g. arm64 uses virtio by default.
 		NetDev: "e1000",
-		RngDev: "",
-		// RngDev: "virtio-rng-pci",
+		// RngDev: "",
+		RngDev: "virtio-rng-pci",
 		CmdLine: []string{
 			"root=/dev/sda",
 			"console=ttyS0",
+			"net.ifnames=0",
 		},
 	},
 	"linux/386": {

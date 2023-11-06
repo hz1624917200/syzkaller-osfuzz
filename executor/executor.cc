@@ -141,7 +141,7 @@ const int kInitialOutput = 14 << 20;
 // TODO: allocate a smaller amount of memory in the parent once we merge the patches that enable
 // prog execution with neither signal nor coverage. Likely 64kb will be enough in that case.
 
-const int kInFd = 3;
+const int kInFd = 3;	// defined in `ipc.go:makeCommand`: cmd.ExtraFiles = []*os.File{inFile, outFile}
 const int kOutFd = 4;
 static uint32* output_data;
 static uint32* output_pos;
@@ -464,13 +464,13 @@ int main(int argc, char** argv)
 	input_data = static_cast<char*>(mmap_out);
 
 #if SYZ_EXECUTOR_USES_SHMEM
-	mmap_output(kInitialOutput);
+	mmap_output(kInitialOutput);	// each output region is 1MB
 	// Prevent test programs to mess with these fds.
 	// Due to races in collider mode, a program can e.g. ftruncate one of these fds,
 	// which will cause fuzzer to crash.
 	close(kInFd);
 #if !SYZ_EXECUTOR_USES_FORK_SERVER
-	close(kOutFd);
+	close(kOutFd);		// if we use fork server, we will later mmap output region again
 #endif
 	// For SYZ_EXECUTOR_USES_FORK_SERVER, close(kOutFd) is invoked in the forked child,
 	// after the program has been received.
@@ -796,7 +796,7 @@ void execute_one()
 				size &= ~(1ull << 63); // readable flag
 				NONFAILING(memcpy(addr, input_pos, size));
 				// Read out the data.
-				for (uint64 i = 0; i < (size + 7) / 8; i++)
+				for (uint64 i = 0; i < (size + 7) / 8; i++)		// only move the input pos
 					read_input(&input_pos);
 				break;
 			}
@@ -867,7 +867,7 @@ void execute_one()
 		if (call_num >= ARRAY_SIZE(syscalls))
 			failmsg("invalid syscall number", "call_num=%llu", call_num);
 		const call_t* call = &syscalls[call_num];
-		if (call->attrs.disabled)
+		if (call->attrs.disabled)		// not implemented yet, disabled call will be deleted from fuzzer
 			failmsg("executing disabled syscall", "syscall=%s", call->name);
 		if (prog_extra_timeout < call->attrs.prog_timeout)
 			prog_extra_timeout = call->attrs.prog_timeout * slowdown_scale;

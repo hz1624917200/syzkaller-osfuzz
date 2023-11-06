@@ -16,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/google/syzkaller/pkg/cover"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/pkg/signal"
 	"github.com/google/syzkaller/prog"
@@ -588,8 +589,9 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	}
 	defer wp.Close()
 
-	// TODO: why not merging the inrp and the outwp?
+	// pipe has 2 ends, one end for read, one end for write.
 	// executor->ipc command pipe.
+	// for example, executor writes to inwp, ipc reads from inrp.
 	inrp, inwp, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pipe: %w", err)
@@ -608,6 +610,8 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	c.readDone = make(chan []byte, 1)
 
 	cmd := osutil.Command(bin[0], bin[1:]...) // bin: executor binary + "exec"
+	// debug: print cmd args
+	log.Logf(1, "executor cmd args: %v\n", cmd.Args)
 	if inFile != nil && outFile != nil {
 		cmd.ExtraFiles = []*os.File{inFile, outFile}
 	}
@@ -662,6 +666,7 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	// reading from inrp will hang since we hold another end of the pipe open.
 	inwp.Close()
 
+	// executor forkserver mode
 	if c.config.UseForkServer {
 		if err := c.handshake(); err != nil {
 			return nil, err
