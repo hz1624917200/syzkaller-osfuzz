@@ -498,7 +498,21 @@ int main(int argc, char** argv)
 #else
 	receive_execute();
 #endif
-	if (flag_coverage_kcov) {		// use kcov as coverage
+	if (flag_coverage_intelpt) {		// flag_coverage_intelpt enabled
+		// We can't open coverage now because we don't know the pid of the target process yet.
+		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
+
+		// open global memory reader
+		fprintf(stderr, "Intel PT coverage enabled, disable kcov coverages\n");
+		flag_coverage_kcov = false;
+		flag_extra_coverage = false;
+		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
+		if (ipt_driver.driver_fd < 0)
+			fail("open /proc/syzipt failed");
+		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
+
+		thread_count = iptDefaultCount;
+	} else if (flag_coverage_kcov) {		// use kcov as coverage
 		thread_count = kCoverDefaultCount;
 		int mmap_count = thread_count;
 		if (flag_delay_kcov_mmap) {
@@ -536,21 +550,7 @@ int main(int argc, char** argv)
 		strncat(filename, "syz-cover-bitmap", 17);
 		filename[sizeof(filename) - 1] = '\0';
 		init_coverage_filter(filename);
-} else if (flag_coverage_intelpt) {		// flag_coverage_intelpt enabled
-		// We can't open coverage now because we don't know the pid of the target process yet.
-		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
-
-		// open global memory reader
-		fprintf(stderr, "Intel PT coverage enabled, disable kcov coverages\n");
-		flag_coverage_kcov = false;
-		flag_extra_coverage = false;
-		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
-		if (ipt_driver.driver_fd < 0)
-			fail("open /proc/syzipt failed");
-		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
-
-		thread_count = iptDefaultCount;
-	}
+}
 
 	int status = 0;
 	if (flag_sandbox_none)
