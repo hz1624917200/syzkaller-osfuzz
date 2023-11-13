@@ -499,8 +499,6 @@ int main(int argc, char** argv)
 	receive_execute();
 #endif
 	if (flag_coverage_kcov) {		// use kcov as coverage
-		if (flag_coverage_intelpt)
-			fail("flag_coverage_kcov and flag_coverage_intelpt are exclusive");
 		thread_count = kCoverDefaultCount;
 		int mmap_count = thread_count;
 		if (flag_delay_kcov_mmap) {
@@ -543,6 +541,9 @@ int main(int argc, char** argv)
 		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
 
 		// open global memory reader
+		fprintf(stderr, "Intel PT coverage enabled, disable kcov coverages\n");
+		flag_coverage_kcov = false;
+		flag_extra_coverage = false;
 		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
 		if (ipt_driver.driver_fd < 0)
 			fail("open /proc/syzipt failed");
