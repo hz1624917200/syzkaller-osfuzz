@@ -76,6 +76,9 @@ const int kCoverOptimizedCount = 12; // the number of kcov instances to be opene
 const int kCoverOptimizedPreMmap = 3; // this many will be mmapped inside main(), others - when needed.
 const int kCoverDefaultCount = 6; // otherwise we only init kcov instances inside main()
 
+// Intel PT instance count
+const int iptDefaultCount = 6;
+
 // Logical error (e.g. invalid input program), use as an assert() alternative.
 // If such error happens 10+ times in a row, it will be detected as a bug by syz-fuzzer.
 // syz-fuzzer will fail and syz-manager will create a bug for this.
@@ -157,7 +160,9 @@ static bool dedup(uint32 sig);
 uint64 start_time_ms = 0;
 
 static bool flag_debug;
-static bool flag_coverage;
+static bool flag_coverage_kcov;
+static bool flag_coverage_intelpt;		// is exclusive with flag_coverage_kcov
+static bool flag_coverage_intelpt_dump;
 static bool flag_sandbox_none;
 static bool flag_sandbox_setuid;
 static bool flag_sandbox_namespace;
@@ -190,6 +195,7 @@ static uint64 slowdown_scale;
 
 #define SYZ_EXECUTOR 1
 #include "common.h"
+#include "cov_ipt.h"
 
 const int kMaxInput = 4 << 20; // keep in sync with prog.ExecBufferSize
 const int kMaxCommands = 1000; // prog package knows about this constant (prog.execMaxCommands)
@@ -212,6 +218,7 @@ const uint64 binary_format_stroct = 4;
 
 const uint64 no_copyout = -1;
 
+static int thread_count;
 static int running;
 uint32 completed;
 bool is_kernel_64_bit = true;
@@ -239,7 +246,10 @@ struct cover_t {
 	uint32 size;
 	uint32 mmap_alloc_size;
 	char* data;
-	char* data_end;
+	char* data_end;		// end of mmapped data region
+	// if cover_intelpt enabled, data -> perfMmapAux, data_event -> perfMmapBuf
+	uint8_t *data_perf_event;	// start of perf event data region
+
 	// Note: On everything but darwin the first value in data is the count of
 	// recorded PCs, followed by the PCs. We therefore set data_offset to the
 	// size of one PC.
@@ -255,8 +265,11 @@ struct cover_t {
 	intptr_t pc_offset;
 };
 
+
+
 struct thread_t {
 	int id;
+pid_t pid;
 	bool created;
 	event_t ready;
 	event_t done;
@@ -272,6 +285,7 @@ struct thread_t {
 	uint32 reserrno;
 	bool fault_injected;
 	cover_t cov;
+ipt_decoder_t decoder;
 	bool soft_fail_state;
 };
 
@@ -389,6 +403,7 @@ static void setup_features(char** enable, int n);
 
 #include "syscalls.h"
 
+
 #if GOOS_linux
 #include "executor_linux.h"
 #elif GOOS_fuchsia
@@ -408,7 +423,6 @@ static void setup_features(char** enable, int n);
 #endif
 
 #include "cov_filter.h"
-
 #include "test.h"
 
 #if SYZ_HAVE_SANDBOX_ANDROID
@@ -484,15 +498,19 @@ int main(int argc, char** argv)
 #else
 	receive_execute();
 #endif
-	if (flag_coverage) {
-		int create_count = kCoverDefaultCount, mmap_count = create_count;
+	if (flag_coverage_kcov) {		// use kcov as coverage
+		if (flag_coverage_intelpt)
+			fail("flag_coverage_kcov and flag_coverage_intelpt are exclusive");
+		thread_count = kCoverDefaultCount;
+		int mmap_count = thread_count;
 		if (flag_delay_kcov_mmap) {
-			create_count = kCoverOptimizedCount;
+			thread_count = kCoverOptimizedCount;
 			mmap_count = kCoverOptimizedPreMmap;
 		}
-		if (create_count > kMaxThreads)
-			create_count = kMaxThreads;
-		for (int i = 0; i < create_count; i++) {
+		if (thread_count > kMaxThreads)
+			thread_count = kMaxThreads;
+		// initialize kcov coverage instances
+		for (int i = 0; i < thread_count; i++) {
 			threads[i].cov.fd = kCoverFd + i;
 			cover_open(&threads[i].cov, false);
 			if (i < mmap_count) {
@@ -520,6 +538,17 @@ int main(int argc, char** argv)
 		strncat(filename, "syz-cover-bitmap", 17);
 		filename[sizeof(filename) - 1] = '\0';
 		init_coverage_filter(filename);
+} else if (flag_coverage_intelpt) {		// flag_coverage_intelpt enabled
+		// We can't open coverage now because we don't know the pid of the target process yet.
+		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
+
+		// open global memory reader
+		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
+		if (ipt_driver.driver_fd < 0)
+			fail("open /proc/syzipt failed");
+		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
+
+		thread_count = iptDefaultCount;
 	}
 
 	int status = 0;
@@ -605,7 +634,10 @@ void parse_env_flags(uint64 flags)
 {
 	// Note: Values correspond to ordering in pkg/ipc/ipc.go, e.g. FlagSandboxNamespace
 	flag_debug = flags & (1 << 0);
-	flag_coverage = flags & (1 << 1);
+	flag_coverage_kcov = flags & (1 << 1);
+// flag_coverage_kcov = false;
+	flag_coverage_intelpt = true;		// for debug, intel PT is manually enabled
+	flag_coverage_intelpt_dump = false;
 	if (flags & (1 << 2))
 		flag_sandbox_setuid = true;
 	else if (flags & (1 << 3))
@@ -705,7 +737,7 @@ void receive_execute()
 
 bool cover_collection_required()
 {
-	return flag_coverage && (flag_collect_signal || flag_collect_cover || flag_comparisons);
+	return flag_coverage_kcov && (flag_collect_signal || flag_collect_cover || flag_comparisons);
 }
 
 #if GOOS_akaros
@@ -748,6 +780,8 @@ void realloc_output_data()
 // execute_one executes program stored in input_data.
 void execute_one()
 {
+// for debug, waiting for gdb attach
+	// raise(SIGSTOP);
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
 	output_pos = output_data;
@@ -761,6 +795,9 @@ void execute_one()
 			cover_enable(&threads[0].cov, flag_comparisons, false);
 		if (flag_extra_coverage)
 			cover_reset(&extra_cov);
+} else if (flag_coverage_intelpt && !flag_threaded) {
+		cover_open_ipt(&threads[0].cov);
+		// cover_enable_ipt(&threads[0].cov);		// no need to enable now, ipt will be enabled before syscall
 	}
 
 	int call_index = 0;
@@ -968,8 +1005,10 @@ thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint
 	int i = 0;
 	for (; i < kMaxThreads; i++) {
 		thread_t* th = &threads[i];
-		if (!th->created)
+		if (!th->created) {
+			debug("Creating thread %d\n", i);	// for debug
 			thread_create(th, i, cover_collection_required());
+}
 		if (event_isset(&th->done)) {
 			if (th->executing)
 				handle_completion(th);
@@ -1048,6 +1087,65 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 			write_output(cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
+}
+
+// TODO: debug var, delete this later
+int dump_index = 0;
+
+template <typename cover_data_t>
+void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos) {
+	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
+	uint64 aux_head = header->aux_head;
+	uint64 aux_tail = header->aux_tail;
+	uint64 aux_mmap_size = header->aux_size;
+
+	if (aux_head == aux_tail) {
+		fprintf(stderr, "Warning: no aux data captured\n");
+		return;
+	}
+	debug("Intel PT Trace Data: aux_head: %llu, aux_tail: %llu, aux_mmap_size: %llu\n", aux_head, aux_tail, aux_mmap_size);
+ 	// handle ring buffer, copy to decoder trace_input
+	uint64 aux_size = 0;
+	if (aux_head > aux_tail) {		// normal case
+		aux_size = aux_head - aux_tail;
+		uint8* aux_buf = (uint8*)cov->data + aux_tail;
+		memcpy(decoder->trace_input, aux_buf, aux_size);
+	} else {				// wrap around case
+		aux_size = aux_mmap_size - aux_tail;
+		uint8* aux_buf = (uint8*)cov->data + aux_tail;
+		memcpy(decoder->trace_input, aux_buf, aux_size);
+		aux_buf = (uint8*)cov->data;
+		memcpy(decoder->trace_input + aux_size, aux_buf, aux_head);
+		aux_size += aux_head;
+	}
+	decoder->trace_input[aux_size] = 0x55;		// canonic end of trace data
+	if (flag_coverage_intelpt_dump) {
+		// dump trace data to a file
+		char filename[40];
+		sprintf(filename, "/root/executor-test/trace_data_%d", dump_index++);
+		int fp = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (fp < 0) {
+			fprintf(stderr, "Error: cannot open file %s\n", filename);
+			return;
+		}
+
+		if (write(fp, decoder->trace_input, aux_size) != (ssize_t)aux_size) {
+			fprintf(stderr, "Error: cannot write to file %s\n", filename);
+			return;
+		}
+		close(fp);
+		debug("Intel PT Trace Data: %llu bytes written to %s\n", aux_size, filename);
+	}
+
+	decoder->decode(aux_size);
+	*signal_count_pos = decoder->get_signal_count();
+	debug("Signal count: %u\n", *signal_count_pos);
+	for (uint32_t i = 0; i < *signal_count_pos; i++) {
+		write_output(decoder->signal_data[i + 1]);
+	}
+	// reset coverage data and ioc
+	cover_reset_ipt(cov);
+	decoder->reset_signal();
 }
 #endif // if SYZ_EXECUTOR_USES_SHMEM
 
@@ -1156,6 +1254,11 @@ void write_call_output(thread_t* th, bool finished)
 			write_coverage_signal<uint64>(&th->cov, signal_count_pos, cover_count_pos);
 		else
 			write_coverage_signal<uint32>(&th->cov, signal_count_pos, cover_count_pos);
+} else if (flag_coverage_intelpt) {
+		if (is_kernel_64_bit)
+			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos);
+		else
+			write_coverage_ipt<uint32>(&th->decoder, &th->cov, signal_count_pos);
 	}
 	debug_verbose("out #%u: index=%u num=%u errno=%d finished=%d blocked=%d sig=%u cover=%u comps=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, finished, blocked,
@@ -1242,6 +1345,10 @@ void* worker_thread(void* arg)
 	current_thread = th;
 	if (cover_collection_required())
 		cover_enable(&th->cov, flag_comparisons, false);
+if (flag_coverage_intelpt) {
+		cover_open_ipt(&th->cov);
+		th->decoder.init();
+	}
 	for (;;) {
 		event_wait(&th->ready);
 		event_reset(&th->ready);
@@ -1272,8 +1379,11 @@ void execute_call(thread_t* th)
 		th->soft_fail_state = true;
 	}
 
-	if (flag_coverage)
+	if (flag_coverage_kcov)
 		cover_reset(&th->cov);
+else if (flag_coverage_intelpt) {
+		cover_enable_ipt(&th->cov);
+	}
 	// For pseudo-syscalls and user-space functions NONFAILING can abort before assigning to th->res.
 	// Arrange for res = -1 and errno = EFAULT result for such case.
 	th->res = -1;
@@ -1286,10 +1396,13 @@ void execute_call(thread_t* th)
 	// Reset the flag before the first possible fail().
 	th->soft_fail_state = false;
 
-	if (flag_coverage) {
+	if (flag_coverage_kcov) {
 		cover_collect(&th->cov);
 		if (th->cov.size >= kCoverSize)
 			failmsg("too much cover", "thr=%d, cov=%u", th->id, th->cov.size);
+} else if (flag_coverage_intelpt) {
+		cover_disable_ipt(&th->cov);
+		// reset ipt after write coverage output
 	}
 	th->fault_injected = false;
 
@@ -1305,7 +1418,7 @@ void execute_call(thread_t* th)
 	      th->id, current_time_ms() - start_time_ms, call->name, (uint64)th->res);
 	if (th->res == (intptr_t)-1)
 		debug(" errno=%d", th->reserrno);
-	if (flag_coverage)
+	if (flag_coverage_kcov)
 		debug(" cover=%u", th->cov.size);
 	if (th->call_props.fail_nth > 0)
 		debug(" fault=%d", th->fault_injected);

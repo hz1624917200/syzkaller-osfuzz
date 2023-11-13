@@ -91,6 +91,26 @@ static void cover_open(cover_t* cov, bool extra)
 	cov->mmap_alloc_size = cover_size * (is_kernel_64_bit ? 8 : 4);
 }
 
+// can only open intel PT perf event after pthread create
+static void cover_open_ipt(cover_t* cov) {
+	cov->fd = perf_event_open(&pe, 0, -1, -1, 0);		// pid = 0 means current thread
+	if (cov->fd < 0)
+		fail("perf_event_open failed");
+
+	// mmap for perf_event
+	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->fd, 0)) == MAP_FAILED)
+		fail("mmap perf_event failed");
+	
+	struct perf_event_mmap_page *header = (struct perf_event_mmap_page *)cov->data_perf_event;
+	// debug print
+	debug("perf_event mmap page size: %llu\n", header->data_size);
+	header->aux_offset = header->data_offset + header->data_size;
+	header->aux_size = _PERF_AUX_SIZE;
+	if ((cov->data = (char*)mmap(NULL, header->aux_size, PROT_READ, MAP_SHARED, cov->fd, header->aux_offset)) == MAP_FAILED)
+		fail("mmap perf_event aux failed");		// TODO: add error handling
+	debug("intel PT cover open success\n");
+}
+
 static void cover_protect(cover_t* cov)
 {
 }
@@ -139,10 +159,18 @@ static void cover_enable(cover_t* cov, bool collect_comps, bool extra)
 		exitf("remote cover enable write trace failed");
 }
 
+static void cover_enable_ipt(cover_t* cov) {
+	ioctl(cov->fd, PERF_EVENT_IOC_ENABLE, 0);
+}
+
+static void cover_disable_ipt(cover_t* cov) {
+	ioctl(cov->fd, PERF_EVENT_IOC_DISABLE, 0);
+}
+
 static void cover_reset(cover_t* cov)
 {
 	// Callers in common_linux.h don't check this flag.
-	if (!flag_coverage)
+	if (!flag_coverage_kcov)
 		return;
 	if (cov == 0) {
 		if (current_thread == 0)
@@ -150,6 +178,16 @@ static void cover_reset(cover_t* cov)
 		cov = &current_thread->cov;
 	}
 	*(uint64*)cov->data = 0;
+}
+
+static void cover_reset_ipt(cover_t* cov) {
+	/* smp_mb() required as per /usr/include/linux/perf_event.h */
+	wmb();
+	rmb();
+	struct perf_event_mmap_page *header = (struct perf_event_mmap_page *)cov->data_perf_event;
+	ATOMIC_SET(header->aux_tail, ATOMIC_GET(header->aux_head));
+
+	ioctl(cov->fd, PERF_EVENT_IOC_RESET, 0);
 }
 
 static void cover_collect(cover_t* cov)
@@ -210,6 +248,12 @@ static bool detect_gvisor()
 	syscall(__NR_syslog, 3, buf, sizeof(buf) - 1);
 	// This is a first line of gvisor dmesg.
 	return strstr(buf, "Starting gVisor");
+}
+
+static long perf_event_open(
+    struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags) {
+    return syscall(__NR_perf_event_open, hw_event, (uintptr_t)pid, (uintptr_t)cpu,
+        (uintptr_t)group_fd, (uintptr_t)flags);
 }
 
 // One does not simply exit.

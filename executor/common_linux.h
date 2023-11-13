@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "cov_ipt.h"
+
 #if SYZ_EXECUTOR
 const int kExtraCoverSize = 256 << 10;
 struct cover_t;
@@ -3134,8 +3136,8 @@ static volatile long syz_kvm_setup_cpu(volatile long a0, volatile long a1, volat
 // however it's too slow (1-1.5 seconds per namespace, not parallelizable).
 
 // Linux headers do not compile for C++, so we have to define the structs manualy.
-#define XT_TABLE_SIZE 1536
-#define XT_MAX_ENTRIES 10
+#define XT_TABLE_SIZE 32768
+#define XT_MAX_ENTRIES 100
 
 struct xt_counters {
 	uint64 pcnt, bcnt;
@@ -3237,6 +3239,7 @@ static struct arpt_table_desc arpt_tables[] = {
 #define ARPT_SO_GET_INFO (ARPT_BASE_CTL)
 #define ARPT_SO_GET_ENTRIES (ARPT_BASE_CTL + 1)
 
+struct ipt_get_entries ipt_entries;
 static void checkpoint_iptables(struct ipt_table_desc* tables, int num_tables, int family, int level)
 {
 	int fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
@@ -3266,18 +3269,21 @@ static void checkpoint_iptables(struct ipt_table_desc* tables, int num_tables, i
 		debug("iptable checkpoint %s/%d: checkpoint entries=%d hooks=%x size=%d\n",
 		      table->name, family, table->info.num_entries,
 		      table->info.valid_hooks, table->info.size);
-		if (table->info.size > sizeof(table->replace.entrytable))
-			failmsg("iptable checkpoint: table size is too large", "table=%s, family=%d, size=%u",
+		if (table->info.size > sizeof(table->replace.entrytable)) {
+			debug("iptable checkpoint: table size is too large, but continue\ntable=%s, family=%d, size=%u\n",
 				table->name, family, table->info.size);
+			continue;
+			// failmsg("iptable checkpoint: table size is too large", "table=%s, family=%d, size=%u",
+				// table->name, family, table->info.size);
+		}
 		if (table->info.num_entries > XT_MAX_ENTRIES)
 			failmsg("iptable checkpoint: too many counters", "table=%s, family=%d, counters=%d",
 				table->name, family, table->info.num_entries);
-		struct ipt_get_entries entries;
-		memset(&entries, 0, sizeof(entries));
-		strcpy(entries.name, table->name);
-		entries.size = table->info.size;
-		optlen = sizeof(entries) - sizeof(entries.entrytable) + table->info.size;
-		if (getsockopt(fd, level, IPT_SO_GET_ENTRIES, &entries, &optlen))
+		memset(&ipt_entries, 0, sizeof(ipt_entries));
+		strcpy(ipt_entries.name, table->name);
+		ipt_entries.size = table->info.size;
+		optlen = sizeof(ipt_entries) - sizeof(ipt_entries.entrytable) + table->info.size;
+		if (getsockopt(fd, level, IPT_SO_GET_ENTRIES, &ipt_entries, &optlen))
 			failmsg("iptable checkpoint: getsockopt(IPT_SO_GET_ENTRIES) failed",
 				"table=%s, family=%d", table->name, family);
 		table->replace.valid_hooks = table->info.valid_hooks;
@@ -3285,7 +3291,7 @@ static void checkpoint_iptables(struct ipt_table_desc* tables, int num_tables, i
 		table->replace.size = table->info.size;
 		memcpy(table->replace.hook_entry, table->info.hook_entry, sizeof(table->replace.hook_entry));
 		memcpy(table->replace.underflow, table->info.underflow, sizeof(table->replace.underflow));
-		memcpy(table->replace.entrytable, entries.entrytable, table->info.size);
+		memcpy(table->replace.entrytable, ipt_entries.entrytable, table->info.size);
 	}
 	close(fd);
 }
@@ -3313,15 +3319,14 @@ static void reset_iptables(struct ipt_table_desc* tables, int num_tables, int fa
 			failmsg("iptable: getsockopt(IPT_SO_GET_INFO) failed",
 				"table=%s, family=%d", table->name, family);
 		if (memcmp(&table->info, &info, sizeof(table->info)) == 0) {
-			struct ipt_get_entries entries;
-			memset(&entries, 0, sizeof(entries));
-			strcpy(entries.name, table->name);
-			entries.size = table->info.size;
-			optlen = sizeof(entries) - sizeof(entries.entrytable) + entries.size;
-			if (getsockopt(fd, level, IPT_SO_GET_ENTRIES, &entries, &optlen))
+			memset(&ipt_entries, 0, sizeof(ipt_entries));
+			strcpy(ipt_entries.name, table->name);
+			ipt_entries.size = table->info.size;
+			optlen = sizeof(ipt_entries) - sizeof(ipt_entries.entrytable) + ipt_entries.size;
+			if (getsockopt(fd, level, IPT_SO_GET_ENTRIES, &ipt_entries, &optlen))
 				failmsg("iptable: getsockopt(IPT_SO_GET_ENTRIES) failed",
 					"table=%s, family=%d", table->name, family);
-			if (memcmp(table->replace.entrytable, entries.entrytable, table->info.size) == 0)
+			if (memcmp(table->replace.entrytable, ipt_entries.entrytable, table->info.size) == 0)
 				continue;
 		}
 		debug("iptable %s/%d: resetting\n", table->name, family);
@@ -3336,6 +3341,7 @@ static void reset_iptables(struct ipt_table_desc* tables, int num_tables, int fa
 	close(fd);
 }
 
+struct arpt_get_entries arpt_entries;
 static void checkpoint_arptables(void)
 {
 	int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -3369,19 +3375,18 @@ static void checkpoint_arptables(void)
 		if (table->info.num_entries > XT_MAX_ENTRIES)
 			failmsg("arptable checkpoint: too many counters",
 				"table=%s, counters=%u", table->name, table->info.num_entries);
-		struct arpt_get_entries entries;
-		memset(&entries, 0, sizeof(entries));
-		strcpy(entries.name, table->name);
-		entries.size = table->info.size;
-		optlen = sizeof(entries) - sizeof(entries.entrytable) + table->info.size;
-		if (getsockopt(fd, SOL_IP, ARPT_SO_GET_ENTRIES, &entries, &optlen))
+		memset(&arpt_entries, 0, sizeof(arpt_entries));
+		strcpy(arpt_entries.name, table->name);
+		arpt_entries.size = table->info.size;
+		optlen = sizeof(arpt_entries) - sizeof(arpt_entries.entrytable) + table->info.size;
+		if (getsockopt(fd, SOL_IP, ARPT_SO_GET_ENTRIES, &arpt_entries, &optlen))
 			failmsg("arptable checkpoint: getsockopt(ARPT_SO_GET_ENTRIES) failed", "table=%s", table->name);
 		table->replace.valid_hooks = table->info.valid_hooks;
 		table->replace.num_entries = table->info.num_entries;
 		table->replace.size = table->info.size;
 		memcpy(table->replace.hook_entry, table->info.hook_entry, sizeof(table->replace.hook_entry));
 		memcpy(table->replace.underflow, table->info.underflow, sizeof(table->replace.underflow));
-		memcpy(table->replace.entrytable, entries.entrytable, table->info.size);
+		memcpy(table->replace.entrytable, arpt_entries.entrytable, table->info.size);
 	}
 	close(fd);
 }
@@ -3408,14 +3413,13 @@ static void reset_arptables()
 		if (getsockopt(fd, SOL_IP, ARPT_SO_GET_INFO, &info, &optlen))
 			failmsg("arptable: getsockopt(ARPT_SO_GET_INFO) failed", "table=%s", table->name);
 		if (memcmp(&table->info, &info, sizeof(table->info)) == 0) {
-			struct arpt_get_entries entries;
-			memset(&entries, 0, sizeof(entries));
-			strcpy(entries.name, table->name);
-			entries.size = table->info.size;
-			optlen = sizeof(entries) - sizeof(entries.entrytable) + entries.size;
-			if (getsockopt(fd, SOL_IP, ARPT_SO_GET_ENTRIES, &entries, &optlen))
+			memset(&arpt_entries, 0, sizeof(arpt_entries));
+			strcpy(arpt_entries.name, table->name);
+			arpt_entries.size = table->info.size;
+			optlen = sizeof(arpt_entries) - sizeof(arpt_entries.entrytable) + arpt_entries.size;
+			if (getsockopt(fd, SOL_IP, ARPT_SO_GET_ENTRIES, &arpt_entries, &optlen))
 				failmsg("arptable: getsockopt(ARPT_SO_GET_ENTRIES) failed", "table=%s", table->name);
-			if (memcmp(table->replace.entrytable, entries.entrytable, table->info.size) == 0)
+			if (memcmp(table->replace.entrytable, arpt_entries.entrytable, table->info.size) == 0)
 				continue;
 			debug("arptable %s: data changed\n", table->name);
 		} else {
@@ -3520,6 +3524,7 @@ static void checkpoint_ebtables(void)
 	close(fd);
 }
 
+char eb_entrytable[XT_TABLE_SIZE];
 static void reset_ebtables()
 {
 	int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -3546,13 +3551,12 @@ static void reset_ebtables()
 		for (unsigned h = 0; h < NF_BR_NUMHOOKS; h++)
 			table->replace.hook_entry[h] = 0;
 		if (memcmp(&table->replace, &replace, sizeof(table->replace)) == 0) {
-			char entrytable[XT_TABLE_SIZE];
-			memset(&entrytable, 0, sizeof(entrytable));
-			replace.entries = entrytable;
+			memset(&eb_entrytable, 0, sizeof(eb_entrytable));
+			replace.entries = eb_entrytable;
 			optlen = sizeof(replace) + replace.entries_size;
 			if (getsockopt(fd, SOL_IP, EBT_SO_GET_ENTRIES, &replace, &optlen))
 				failmsg("ebtable: getsockopt(EBT_SO_GET_ENTRIES) failed", "table=%s", table->name);
-			if (memcmp(table->entrytable, entrytable, replace.entries_size) == 0)
+			if (memcmp(table->entrytable, eb_entrytable, replace.entries_size) == 0)
 				continue;
 		}
 		debug("ebtable %s: resetting\n", table->name);
@@ -3864,6 +3868,8 @@ static void sandbox_common()
 #if SYZ_EXECUTOR
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20) +
 					(kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
+if (flag_coverage_intelpt)
+		rlim.rlim_cur += (kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
 #else
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20);
 #endif

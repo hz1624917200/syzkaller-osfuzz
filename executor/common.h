@@ -660,6 +660,7 @@ static void loop(void)
 #endif
 #if SYZ_EXECUTOR
 		receive_execute();
+debug("Program received, starting fork\n");
 #endif
 		int pid = fork();
 		if (pid < 0)
