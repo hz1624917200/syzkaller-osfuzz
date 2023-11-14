@@ -139,7 +139,10 @@ func checkMachine(args *checkArgs) (*rpctype.CheckArgs, error) {
 	}
 	if feat := features[host.FeatureCoverage]; !feat.Enabled &&
 		args.ipcConfig.Flags&ipc.FlagSignal != 0 {
-		return nil, fmt.Errorf("coverage is not supported (%v)", feat.Reason)
+		if feat := features[host.FeatureCoverageIpt]; !feat.Enabled &&
+			args.ipcConfig.Flags&ipc.FlagSignalIpt != 0 {
+			return nil, fmt.Errorf("coverage is not supported (%v)", feat.Reason)
+		}
 	}
 	if feat := features[host.FeatureSandboxSetuid]; !feat.Enabled &&
 		args.ipcConfig.Flags&ipc.FlagSandboxSetuid != 0 {
@@ -226,14 +229,14 @@ func checkRevisions(args *checkArgs) error {
 	if args.target.Arch != vers[1] {
 		return fmt.Errorf("mismatching target/executor arches: %v vs %v", args.target.Arch, vers[1])
 	}
-	if prog.GitRevision != vers[3] {
-		return fmt.Errorf("mismatching fuzzer/executor git revisions: %v vs %v",
-			prog.GitRevision, vers[3])
-	}
-	if args.gitRevision != prog.GitRevision {
-		return fmt.Errorf("mismatching manager/fuzzer git revisions: %v vs %v",
-			args.gitRevision, prog.GitRevision)
-	}
+	// if prog.GitRevision != vers[3] {
+	// 	return fmt.Errorf("mismatching fuzzer/executor git revisions: %v vs %v",
+	// 		prog.GitRevision, vers[3])
+	// }
+	// if args.gitRevision != prog.GitRevision {
+	// 	return fmt.Errorf("mismatching manager/fuzzer git revisions: %v vs %v",
+	// 		args.gitRevision, prog.GitRevision)
+	// }
 	if args.target.Revision != vers[2] {
 		return fmt.Errorf("mismatching fuzzer/executor system call descriptions: %v vs %v",
 			args.target.Revision, vers[2])

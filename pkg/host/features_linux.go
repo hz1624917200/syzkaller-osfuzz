@@ -40,6 +40,7 @@ func init() {
 	checkFeature[FeatureWifiEmulation] = checkWifiEmulation
 	checkFeature[Feature802154Emulation] = check802154Emulation
 	checkFeature[FeatureSwap] = checkSwap
+	checkFeature[FeatureCoverageIpt] = checkCoverageIpt
 }
 
 func checkCoverage() string {
@@ -50,6 +51,16 @@ func checkCoverage() string {
 		return "CONFIG_KCOV is not enabled"
 	}
 	if err := osutil.IsAccessible("/sys/kernel/debug/kcov"); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func checkCoverageIpt() string {
+	if !osutil.IsExist("/proc/syzipt") {
+		return "syzipt driver is not installed"
+	}
+	if err := osutil.IsAccessible("/proc/syzipt"); err != nil {
 		return err.Error()
 	}
 	return ""

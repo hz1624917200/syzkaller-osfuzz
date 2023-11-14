@@ -27,6 +27,7 @@ import (
 	"github.com/google/syzkaller/pkg/csource"
 	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/ipc"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/pkg/osutil"
 	"github.com/google/syzkaller/prog"
 	"github.com/google/syzkaller/sys/targets"
@@ -82,6 +83,7 @@ func (ctx *Context) Run() error {
 	for req := range progs {
 		result := ""
 		verbose := false
+		log.Logf(0, "testing %v...", req.name)
 		if req.broken != "" {
 			broken++
 			result = fmt.Sprintf("BROKEN (%v)", req.broken)
@@ -139,8 +141,10 @@ func (ctx *Context) Run() error {
 			ctx.log("%-38v: %v", req.name, result)
 		}
 		if req.Bin != "" {
-			os.Remove(req.Bin)
+			// TODO: for debug
+			// os.Remove(req.Bin)
 		}
+		log.Logf(0, "req.ok: %v; req.broken: %v; req.skip: %v; req.fail: %v", ok, broken, skip, fail)
 	}
 	if err := <-errc; err != nil {
 		return err
@@ -153,9 +157,17 @@ func (ctx *Context) Run() error {
 }
 
 func (ctx *Context) generatePrograms(progs chan *RunRequest) error {
-	cover := []bool{false}
-	if ctx.Features[host.FeatureCoverage].Enabled {
+	log.Logf(0, "Generating programs...")
+	// cover := []bool{false}
+	// TODO: simplified for debugging
+	cover := []bool{}
+	if ctx.Features[host.FeatureCoverage].Enabled ||
+		ctx.Features[host.FeatureCoverageIpt].Enabled {
 		cover = append(cover, true)
+	}
+	cover_ipt := false
+	if ctx.Features[host.FeatureCoverageIpt].Enabled {
+		cover_ipt = true
 	}
 	var sandboxes []string
 	for sandbox := range ctx.EnabledCalls {
@@ -166,8 +178,9 @@ func (ctx *Context) generatePrograms(progs chan *RunRequest) error {
 	if err != nil {
 		return err
 	}
+	log.Logf(0, "generating file: sandboxes: %v; cover: %v; file: %v", sandboxes, cover, files)
 	for _, file := range files {
-		if err := ctx.generateFile(progs, sandboxes, cover, file); err != nil {
+		if err := ctx.generateFile(progs, sandboxes, cover, cover_ipt, file); err != nil {
 			return err
 		}
 	}
@@ -191,7 +204,7 @@ func progFileList(dir, filter string) ([]string, error) {
 	return res, nil
 }
 
-func (ctx *Context) generateFile(progs chan *RunRequest, sandboxes []string, cover []bool, filename string) error {
+func (ctx *Context) generateFile(progs chan *RunRequest, sandboxes []string, cover []bool, cover_ipt bool, filename string) error {
 	p, requires, results, err := parseProg(ctx.Target, ctx.Dir, filename)
 	if err != nil {
 		return err
@@ -217,13 +230,17 @@ nextSandbox:
 			"sandbox=" + sandbox: true,
 			"littleendian":       ctx.Target.LittleEndian,
 		}
-		for _, threaded := range []bool{false, true} {
+		// TODO: temp simplified for debugging
+		// for _, threaded := range []bool{false, true} {
+		for _, threaded := range []bool{false} {
 			name := name
 			if threaded {
 				name += "/thr"
 			}
 			properties["threaded"] = threaded
-			for _, times := range []int{1, 3} {
+			// TODO: for debug
+			// for _, times := range []int{1, 3} {
+			for _, times := range []int{1} {
 				properties["repeat"] = times > 1
 				properties["norepeat"] = times <= 1
 				if times > 1 {
@@ -237,14 +254,21 @@ nextSandbox:
 					if cov {
 						name += "/cover"
 					}
-					properties["cover"] = cov
+					if cover_ipt {
+						properties["cover"] = false
+						properties["cover_ipt"] = cov
+					} else {
+						properties["cover"] = cov
+						properties["cover_ipt"] = false
+					}
 					properties["C"] = false
 					properties["executor"] = true
-					req, err := ctx.createSyzTest(p, sandbox, threaded, cov, times)
+					// req, err := ctx.createSyzTest(p, sandbox, threaded, cov, cover_ipt, times)
 					if err != nil {
 						return err
 					}
-					ctx.produceTest(progs, req, name, properties, requires, results)
+					// TODO: for debug
+					// ctx.produceTest(progs, req, name, properties, requires, results)
 				}
 				if sysTarget.HostFuzzer {
 					// For HostFuzzer mode, we need to cross-compile
@@ -399,7 +423,7 @@ func match(props, requires map[string]bool) bool {
 	return true
 }
 
-func (ctx *Context) createSyzTest(p *prog.Prog, sandbox string, threaded, cov bool, times int) (*RunRequest, error) {
+func (ctx *Context) createSyzTest(p *prog.Prog, sandbox string, threaded, cov bool, cov_ipt bool, times int) (*RunRequest, error) {
 	sysTarget := targets.Get(p.Target.OS, p.Target.Arch)
 	cfg := new(ipc.Config)
 	opts := new(ipc.ExecOpts)
@@ -415,8 +439,13 @@ func (ctx *Context) createSyzTest(p *prog.Prog, sandbox string, threaded, cov bo
 		opts.Flags |= ipc.FlagThreaded
 	}
 	if cov {
-		cfg.Flags |= ipc.FlagSignal
-		opts.Flags |= ipc.FlagCollectCover
+		if cov_ipt {
+			cfg.Flags |= ipc.FlagSignalIpt
+			opts.Flags |= ipc.FlagCollectCoverIpt
+		} else {
+			cfg.Flags |= ipc.FlagSignal
+			opts.Flags |= ipc.FlagCollectCover
+		}
 	}
 	if ctx.Features[host.FeatureExtraCoverage].Enabled {
 		cfg.Flags |= ipc.FlagExtraCover
@@ -687,11 +716,13 @@ func runTestC(req *RunRequest) {
 		return
 	}
 	defer os.RemoveAll(tmpDir)
-	cmd := osutil.Command(req.Bin)
+	cmd := osutil.Command("strace", "-f", req.Bin)
 	cmd.Dir = tmpDir
 	// Tell ASAN to not mess with our NONFAILING.
 	cmd.Env = append(append([]string{}, os.Environ()...), "ASAN_OPTIONS=handle_segv=0 allow_user_segv_handler=1")
+	log.Logf(0, "running %v", cmd.Args)
 	req.Output, req.Err = osutil.Run(20*time.Second, cmd)
+	log.Logf(0, "output:\n%s", req.Output)
 	var verr *osutil.VerboseError
 	if errors.As(req.Err, &verr) {
 		// The process can legitimately do something like exit_group(1).

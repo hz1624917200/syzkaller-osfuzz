@@ -5,6 +5,7 @@ package ipcconfig
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/google/syzkaller/pkg/ipc"
 	"github.com/google/syzkaller/prog"
@@ -15,6 +16,7 @@ var (
 	flagExecutor   = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagThreaded   = flag.Bool("threaded", true, "use threaded mode in executor")
 	flagSignal     = flag.Bool("cover", false, "collect feedback signals (coverage)")
+	flagSignalIpt  = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
 	flagSandbox    = flag.String("sandbox", "none", "sandbox for fuzzing (none/setuid/namespace/android)")
 	flagSandboxArg = flag.Int("sandbox_arg", 0, "argument for sandbox runner to adjust it via config")
 	flagDebug      = flag.Bool("debug", false, "debug output from executor")
@@ -29,6 +31,12 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 	}
 	if *flagSignal {
 		c.Flags |= ipc.FlagSignal
+	}
+	if *flagSignalIpt {
+		if !*flagSignal {
+			return nil, nil, fmt.Errorf("can't use -cover_ipt without -cover")
+		}
+		c.Flags |= ipc.FlagSignalIpt
 	}
 	if *flagDebug {
 		c.Flags |= ipc.FlagDebug

@@ -44,6 +44,7 @@ const (
 	FlagEnableWifi                               // setup and use mac80211_hwsim for wifi emulation
 	FlagDelayKcovMmap                            // manage kcov memory in an optimized way
 	FlagEnableNicVF                              // setup NIC VF device
+	FlagSignalIpt                                // use Intel PT as signal source
 )
 
 // Per-exec flags for ExecOpts.Flags.
@@ -52,6 +53,7 @@ type ExecFlags uint64
 const (
 	FlagCollectSignal        ExecFlags = 1 << iota // collect feedback signals
 	FlagCollectCover                               // collect coverage
+	FlagCollectCoverIpt                            // collect coverage via Intel PT
 	FlagDedupCover                                 // deduplicate coverage in executor
 	FlagCollectComps                               // collect KCOV comparisons
 	FlagThreaded                                   // use multiple threads to mitigate blocked syscalls
@@ -295,6 +297,10 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 	if info != nil && env.config.Flags&FlagSignal == 0 {
 		addFallbackSignal(p, info)
 	}
+	// log.Logf(0, "info signals:\n")
+	// for i, call := range info.Calls {
+	// 	log.Logf(0, "call %v: %v\n", i, len(call.Signal))
+	// }
 	if !env.config.UseForkServer {
 		env.cmd.close()
 		env.cmd = nil
@@ -364,6 +370,7 @@ func (env *Env) parseOutput(p *prog.Prog, opts *ExecOpts) (*ProgInfo, error) {
 			return nil, fmt.Errorf("call %v/%v/%v: signal overflow: %v/%v",
 				i, reply.index, reply.num, reply.signalSize, len(out))
 		}
+		// log.Logf(0, "!!!!!!!!!!!!!!!!!!!!!!!!!!Signal Size: %v!!!!!!!!!!!!!!!!!!!!!!!\n", len(inf.Signal))
 		if inf.Cover, ok = readUint32Array(&out, reply.coverSize); !ok {
 			return nil, fmt.Errorf("call %v/%v/%v: cover overflow: %v/%v",
 				i, reply.index, reply.num, reply.coverSize, len(out))
@@ -790,8 +797,10 @@ func (c *command) exec(opts *ExecOpts, progData []byte) (output []byte, hanged b
 		reply := &executeReply{}
 		replyData := (*[unsafe.Sizeof(*reply)]byte)(unsafe.Pointer(reply))[:]
 		if _, err := io.ReadFull(c.inrp, replyData); err != nil {
+			log.Logf(0, "Error reading reply\n")
 			break
 		}
+		log.Logf(100, "Replay data size: %v\n", len(replyData))
 		if reply.magic != outMagic {
 			fmt.Fprintf(os.Stderr, "executor %v: got bad reply magic 0x%x\n", c.pid, reply.magic)
 			os.Exit(1)
@@ -807,6 +816,7 @@ func (c *command) exec(opts *ExecOpts, progData []byte) (output []byte, hanged b
 		}
 		if callReply.signalSize != 0 || callReply.coverSize != 0 || callReply.compsSize != 0 {
 			// This is unsupported yet.
+			log.Logf(0, "signal received: %v\n", callReply.signalSize)
 			fmt.Fprintf(os.Stderr, "executor %v: got call reply with coverage\n", c.pid)
 			os.Exit(1)
 		}

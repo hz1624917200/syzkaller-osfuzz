@@ -472,6 +472,7 @@ type FuzzerCmdArgs struct {
 	Procs     int
 	Verbosity int
 	Cover     bool
+	CoverIpt  bool
 	Debug     bool
 	Test      bool
 	Runtest   bool
@@ -504,9 +505,9 @@ func FuzzerCmd(args *FuzzerCmdArgs) string {
 		optionalArg = " " + tool.OptionalFlags(flags)
 	}
 	return fmt.Sprintf("%v -executor=%v -name=%v -arch=%v%v -manager=%v -sandbox=%v"+
-		" -procs=%v -cover=%v -debug=%v -test=%v%v%v%v",
+		" -procs=%v -cover=%v -cover_ipt=%v -debug=%v -test=%v%v%v%v",
 		args.Fuzzer, args.Executor, args.Name, args.Arch, osArg, args.FwdAddr, args.Sandbox,
-		args.Procs, args.Cover, args.Debug, args.Test, runtestArg, verbosityArg, optionalArg)
+		args.Procs, args.Cover, args.CoverIpt, args.Debug, args.Test, runtestArg, verbosityArg, optionalArg)
 }
 
 func OldFuzzerCmd(fuzzer, executor, name, OS, arch, fwdAddr, sandbox string, sandboxArg, procs int,
