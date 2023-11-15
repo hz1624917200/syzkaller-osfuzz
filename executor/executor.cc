@@ -503,8 +503,6 @@ int main(int argc, char** argv)
 		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
 
 		// open global memory reader
-		fprintf(stderr, "Intel PT coverage enabled, disable kcov coverages\n");
-		flag_coverage_kcov = false;
 		flag_extra_coverage = false;
 		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
 		if (ipt_driver.driver_fd < 0)
@@ -637,7 +635,6 @@ void parse_env_flags(uint64 flags)
 	flag_debug = flags & (1 << 0);
 	flag_coverage_kcov = flags & (1 << 1);
 	// flag_coverage_kcov = false;
-	flag_coverage_intelpt = true; // for debug, intel PT is manually enabled
 	flag_coverage_intelpt_dump = false;
 	if (flags & (1 << 2))
 		flag_sandbox_setuid = true;
@@ -658,6 +655,14 @@ void parse_env_flags(uint64 flags)
 	flag_wifi = flags & (1 << 13);
 	flag_delay_kcov_mmap = flags & (1 << 14);
 	flag_nic_vf = flags & (1 << 15);
+	flag_coverage_intelpt = flags & (1 << 16);
+	if (flag_coverage_kcov && flag_coverage_intelpt)
+		fail("kcov and intelpt coverage are exclusive");
+	debug("parsed env flags: debug=%d kcov=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d intelpt=%d\n",
+	      flag_debug, flag_coverage_kcov, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
+	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
+	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
+	      flag_nic_vf, flag_coverage_intelpt);
 }
 
 #if SYZ_EXECUTOR_USES_FORK_SERVER
@@ -707,6 +712,12 @@ void receive_execute()
 	flag_comparisons = req.exec_flags & (1 << 3);
 	flag_threaded = req.exec_flags & (1 << 4);
 	flag_coverage_filter = req.exec_flags & (1 << 5);
+	// suppress invalid flags
+	if (flag_coverage_intelpt && (flag_collect_cover || flag_comparisons)) {
+		debug("Warning: intel PT coverage is enabled, disable kcov coverage options\n");
+		flag_collect_cover = false;
+		flag_comparisons = false;
+	}
 
 	debug("[%llums] exec opts: procid=%llu threaded=%d cover=%d comps=%d dedup=%d signal=%d"
 	      " timeouts=%llu/%llu/%llu prog=%llu filter=%d\n",
@@ -736,9 +747,14 @@ void receive_execute()
 		failmsg("bad input size", "size=%lld, want=%lld", pos, req.prog_size);
 }
 
-bool cover_collection_required()
+bool cover_collection_required_kcov()
 {
 	return flag_coverage_kcov && (flag_collect_signal || flag_collect_cover || flag_comparisons);
+}
+
+bool cover_collection_required_ipt()
+{
+	return flag_coverage_intelpt && (flag_collect_signal);
 }
 
 #if GOOS_akaros
@@ -791,12 +807,12 @@ void execute_one()
 	uint64 start = current_time_ms();
 	uint64* input_pos = (uint64*)input_data;
 
-	if (cover_collection_required()) {
+	if (cover_collection_required_kcov()) {
 		if (!flag_threaded)
 			cover_enable(&threads[0].cov, flag_comparisons, false);
 		if (flag_extra_coverage)
 			cover_reset(&extra_cov);
-	} else if (flag_coverage_intelpt && !flag_threaded) {
+	} else if (cover_collection_required_ipt() && !flag_threaded) {
 		cover_open_ipt(&threads[0].cov);
 		// cover_enable_ipt(&threads[0].cov);		// no need to enable now, ipt will be enabled before syscall
 	}
@@ -977,7 +993,7 @@ void execute_one()
 			for (int i = 0; i < kMaxThreads; i++) {
 				thread_t* th = &threads[i];
 				if (th->executing) {
-					if (cover_collection_required())
+					if (cover_collection_required_kcov())
 						cover_collect(&th->cov);
 					write_call_output(th, false);
 				}
@@ -1008,7 +1024,7 @@ thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint
 		thread_t* th = &threads[i];
 		if (!th->created) {
 			debug("Creating thread %d\n", i); // for debug
-			thread_create(th, i, cover_collection_required());
+			thread_create(th, i, cover_collection_required_kcov());
 		}
 		if (event_isset(&th->done)) {
 			if (th->executing)
@@ -1251,12 +1267,12 @@ void write_call_output(thread_t* th, bool finished)
 		}
 		// Write out number of comparisons.
 		*comps_count_pos = comps_size;
-	} else if (flag_collect_signal || flag_collect_cover) {
+	} else if ((flag_collect_signal || flag_collect_cover) && flag_coverage_kcov) {
 		if (is_kernel_64_bit)
 			write_coverage_signal<uint64>(&th->cov, signal_count_pos, cover_count_pos);
 		else
 			write_coverage_signal<uint32>(&th->cov, signal_count_pos, cover_count_pos);
-	} else if (flag_coverage_intelpt) {
+	} else if (cover_collection_required_ipt()) {
 		if (is_kernel_64_bit)
 			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos);
 		else
@@ -1290,7 +1306,7 @@ void write_call_output(thread_t* th, bool finished)
 void write_extra_output()
 {
 #if SYZ_EXECUTOR_USES_SHMEM
-	if (!cover_collection_required() || !flag_extra_coverage || flag_comparisons)
+	if (!cover_collection_required_kcov() || !flag_extra_coverage || flag_comparisons)
 		return;
 	cover_collect(&extra_cov);
 	if (!extra_cov.size)
@@ -1345,9 +1361,9 @@ void* worker_thread(void* arg)
 {
 	thread_t* th = (thread_t*)arg;
 	current_thread = th;
-	if (cover_collection_required())
+	if (cover_collection_required_kcov())
 		cover_enable(&th->cov, flag_comparisons, false);
-	if (flag_coverage_intelpt) {
+	if (cover_collection_required_ipt()) {
 		cover_open_ipt(&th->cov);
 		th->decoder.init();
 	}
@@ -1383,7 +1399,7 @@ void execute_call(thread_t* th)
 
 	if (flag_coverage_kcov)
 		cover_reset(&th->cov);
-	else if (flag_coverage_intelpt) {
+	else if (cover_collection_required_ipt()) {
 		cover_enable_ipt(&th->cov);
 	}
 	// For pseudo-syscalls and user-space functions NONFAILING can abort before assigning to th->res.
@@ -1402,7 +1418,7 @@ void execute_call(thread_t* th)
 		cover_collect(&th->cov);
 		if (th->cov.size >= kCoverSize)
 			failmsg("too much cover", "thr=%d, cov=%u", th->id, th->cov.size);
-	} else if (flag_coverage_intelpt) {
+	} else if (cover_collection_required_ipt()) {
 		cover_disable_ipt(&th->cov);
 		// reset ipt after write coverage output
 	}

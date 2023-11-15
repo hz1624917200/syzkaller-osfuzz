@@ -9,4 +9,4 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -m64 -pthread -Wall -Werror -Wparenth
 add_executable(syz-executor executor/executor.cc)
 target_link_libraries(syz-executor PRIVATE /usr/local/lib/libxdc.a /usr/local/lib64/libcapstone.a)
 
-install(TARGETS syz-executor DESTINATION ${CMAKE_SOURCE_DIR})
+install(TARGETS syz-executor DESTINATION /root/syz-executor-test)

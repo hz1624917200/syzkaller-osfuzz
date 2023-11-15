@@ -18,6 +18,10 @@ static void cover_reset(cover_t* cov);
 #include <linux/futex.h>
 #include <pthread.h>
 
+#if SYZ_USE_IPT
+#include "cov_ipt.h"
+#endif
+
 typedef struct {
 	int state;
 } event_t;
@@ -3862,27 +3866,27 @@ static void sandbox_common()
 	close(netns);
 #endif
 
-	struct rlimit rlim;
+	struct rlimit64 rlim;
 #if SYZ_EXECUTOR
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20) +
 					(kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
 	if (flag_coverage_intelpt)
-		rlim.rlim_cur += (kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
+		rlim.rlim_cur += SYZIPT_MMAP_PAGES * 4096ull;
 #else
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20);
 #endif
-	setrlimit(RLIMIT_AS, &rlim);
+	setrlimit64(RLIMIT_AS, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 32 << 20;
-	setrlimit(RLIMIT_MEMLOCK, &rlim);
+	setrlimit64(RLIMIT_MEMLOCK, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 136 << 20;
-	setrlimit(RLIMIT_FSIZE, &rlim);
+	setrlimit64(RLIMIT_FSIZE, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 1 << 20;
-	setrlimit(RLIMIT_STACK, &rlim);
+	setrlimit64(RLIMIT_STACK, &rlim);
 	// Note: core size is also restricted by RLIMIT_FSIZE.
 	rlim.rlim_cur = rlim.rlim_max = 128 << 20;
-	setrlimit(RLIMIT_CORE, &rlim);
+	setrlimit64(RLIMIT_CORE, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 256; // see kMaxFd
-	setrlimit(RLIMIT_NOFILE, &rlim);
+	setrlimit64(RLIMIT_NOFILE, &rlim);
 
 	// CLONE_NEWNS/NEWCGROUP cause EINVAL on some systems,
 	// so we do them separately of clone in do_sandbox_namespace.
