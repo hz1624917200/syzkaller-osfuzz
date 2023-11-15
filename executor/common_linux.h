@@ -4099,7 +4099,9 @@ static int namespace_sandbox_proc(void* arg)
 {
 	sandbox_common();
 
+	debug("!!!!!!!!!!!! Setup Sandbox namespace !!!!!!!!!!!\n");
 	// /proc/self/setgroups is not present on some systems, ignore error.
+	debug("real_uid: %d; real_gid: %d\n", real_uid, real_gid);
 	write_file("/proc/self/setgroups", "deny");
 	if (!write_file("/proc/self/uid_map", "0 %d 1\n", real_uid))
 		fail("write of /proc/self/uid_map failed");
@@ -4138,18 +4140,18 @@ static int namespace_sandbox_proc(void* arg)
 	if (mount("", "./syz-tmp", "tmpfs", 0, NULL))
 		fail("mount(tmpfs) failed");
 	if (mkdir("./syz-tmp/newroot", 0777))
-		fail("mkdir failed");
+		fail("mkdir(newroot) failed");
 	if (mkdir("./syz-tmp/newroot/dev", 0700))
-		fail("mkdir failed");
+		fail("mkdir(dev) failed");
 	unsigned bind_mount_flags = MS_BIND | MS_REC | MS_PRIVATE;
 	if (mount("/dev", "./syz-tmp/newroot/dev", NULL, bind_mount_flags, NULL))
 		fail("mount(dev) failed");
 	if (mkdir("./syz-tmp/newroot/proc", 0700))
-		fail("mkdir failed");
+		fail("mkdir(proc) failed");
 	if (mount(NULL, "./syz-tmp/newroot/proc", "proc", 0, NULL))
 		fail("mount(proc) failed");
 	if (mkdir("./syz-tmp/newroot/selinux", 0700))
-		fail("mkdir failed");
+		fail("mkdir(selinux) failed");
 	// selinux mount used to be at /selinux, but then moved to /sys/fs/selinux.
 	const char* selinux_path = "./syz-tmp/newroot/selinux";
 	if (mount("/selinux", selinux_path, NULL, bind_mount_flags, NULL)) {
@@ -4159,14 +4161,14 @@ static int namespace_sandbox_proc(void* arg)
 			fail("mount(/sys/fs/selinux) failed");
 	}
 	if (mkdir("./syz-tmp/newroot/sys", 0700))
-		fail("mkdir failed");
+		fail("mkdir(sys) failed");
 	if (mount("/sys", "./syz-tmp/newroot/sys", 0, bind_mount_flags, NULL))
 		fail("mount(sysfs) failed");
 #if SYZ_EXECUTOR || SYZ_CGROUPS
 	initialize_cgroups();
 #endif
 	if (mkdir("./syz-tmp/pivot", 0777))
-		fail("mkdir failed");
+		fail("mkdir(pivot) failed");
 	if (syscall(SYS_pivot_root, "./syz-tmp", "./syz-tmp/pivot")) {
 		debug("pivot_root failed\n");
 		if (chdir("./syz-tmp"))
@@ -4184,6 +4186,8 @@ static int namespace_sandbox_proc(void* arg)
 		fail("chdir failed");
 	setup_binderfs();
 	drop_caps();
+
+	debug("!!!!!!!!!!!! Setup Sandbox namespace END !!!!!!!!!!!\n");
 
 	loop();
 	doexit(1);

@@ -656,13 +656,13 @@ void parse_env_flags(uint64 flags)
 	flag_delay_kcov_mmap = flags & (1 << 14);
 	flag_nic_vf = flags & (1 << 15);
 	flag_coverage_intelpt = flags & (1 << 16);
-	if (flag_coverage_kcov && flag_coverage_intelpt)
-		fail("kcov and intelpt coverage are exclusive");
 	debug("parsed env flags: debug=%d kcov=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d intelpt=%d\n",
 	      flag_debug, flag_coverage_kcov, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
 	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
 	      flag_nic_vf, flag_coverage_intelpt);
+	if (flag_coverage_kcov && flag_coverage_intelpt)
+		fail("kcov and intelpt coverage are exclusive");
 }
 
 #if SYZ_EXECUTOR_USES_FORK_SERVER
@@ -814,6 +814,7 @@ void execute_one()
 			cover_reset(&extra_cov);
 	} else if (cover_collection_required_ipt() && !flag_threaded) {
 		cover_open_ipt(&threads[0].cov);
+		threads[0].decoder.init();
 		// cover_enable_ipt(&threads[0].cov);		// no need to enable now, ipt will be enabled before syscall
 	}
 
