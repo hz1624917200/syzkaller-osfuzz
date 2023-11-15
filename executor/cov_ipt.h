@@ -1,17 +1,23 @@
 #pragma once
+#include <linux/perf_event.h>
 #include <sched.h>
 #include <stdint.h>
-#include <linux/perf_event.h>
 #include <sys/mman.h>
 #include <sys/time.h>
 
 extern "C" {
-	#include <libxdc.h>
+#include <libxdc.h>
 }
 
 #define SYZIPT_MMAP_PAGES 512 * 1024
-#define SYZIPT_MMAP_BASE 0xffffffff80000000 
-#define FILTERS {{0x1000, UINT64_MAX}, {0, 0}, {0, 0}, {0, 0}}
+#define SYZIPT_MMAP_BASE 0xffffffff80000000
+#define FILTERS                                       \
+	{                                             \
+		{0x1000, UINT64_MAX}, {0, 0}, {0, 0}, \
+		{                                     \
+			0, 0                          \
+		}                                     \
+	}
 
 typedef void* (*fetch_memory_page_t)(uint64_t, uint8_t*);
 
@@ -21,10 +27,10 @@ void* page_fetch_callback(void* memory_reader_func, uint64_t addr, bool* ret);
 typedef struct
 {
 	pid_t pid;
-	char *args[16];
+	char* args[16];
 	int perfFd;
-	uint8_t *perfMmapBuf;
-	uint8_t *perfMmapAux;
+	uint8_t* perfMmapBuf;
+	uint8_t* perfMmapAux;
 } run_t;
 
 #define perfIntelPtPerfType 8
@@ -32,70 +38,71 @@ typedef struct
 #define _PERF_AUX_SIZE (512 * 1024)
 
 /* Memory barriers */
-#define rmb() __asm__ __volatile__("" ::: "memory")
+#define rmb() __asm__ __volatile__("" :: \
+				       : "memory")
 #define wmb() __sync_synchronize()
 
 /* Atomics */
-#define ATOMIC_GET(x)     __atomic_load_n(&(x), __ATOMIC_RELAXED)
-#define ATOMIC_SET(x, y)  __atomic_store_n(&(x), y, __ATOMIC_RELAXED)
-#define ATOMIC_CLEAR(x)   __atomic_store_n(&(x), 0, __ATOMIC_RELAXED)
+#define ATOMIC_GET(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
+#define ATOMIC_SET(x, y) __atomic_store_n(&(x), y, __ATOMIC_RELAXED)
+#define ATOMIC_CLEAR(x) __atomic_store_n(&(x), 0, __ATOMIC_RELAXED)
 #define ATOMIC_XCHG(x, y) __atomic_exchange_n(&(x), y, __ATOMIC_RELAXED)
 
 #ifndef BIT
 #define BIT(nr) (1UL << (nr))
 #endif
 
-#define RTIT_CTL_TRACEEN           BIT(0)
-#define RTIT_CTL_CYCLEACC          BIT(1)
-#define RTIT_CTL_OS                BIT(2)
-#define RTIT_CTL_USR               BIT(3)
-#define RTIT_CTL_PWR_EVT_EN        BIT(4)
-#define RTIT_CTL_FUP_ON_PTW        BIT(5)
-#define RTIT_CTL_CR3EN             BIT(7)
-#define RTIT_CTL_TOPA              BIT(8)
-#define RTIT_CTL_MTC_EN            BIT(9)
-#define RTIT_CTL_TSC_EN            BIT(10)
-#define RTIT_CTL_DISRETC           BIT(11)
-#define RTIT_CTL_PTW_EN            BIT(12)
-#define RTIT_CTL_BRANCH_EN         BIT(13)
-#define RTIT_CTL_MTC_RANGE_OFFSET  14
-#define rmb() __asm__ __volatile__("" ::: "memory")
+#define RTIT_CTL_TRACEEN BIT(0)
+#define RTIT_CTL_CYCLEACC BIT(1)
+#define RTIT_CTL_OS BIT(2)
+#define RTIT_CTL_USR BIT(3)
+#define RTIT_CTL_PWR_EVT_EN BIT(4)
+#define RTIT_CTL_FUP_ON_PTW BIT(5)
+#define RTIT_CTL_CR3EN BIT(7)
+#define RTIT_CTL_TOPA BIT(8)
+#define RTIT_CTL_MTC_EN BIT(9)
+#define RTIT_CTL_TSC_EN BIT(10)
+#define RTIT_CTL_DISRETC BIT(11)
+#define RTIT_CTL_PTW_EN BIT(12)
+#define RTIT_CTL_BRANCH_EN BIT(13)
+#define RTIT_CTL_MTC_RANGE_OFFSET 14
+#define rmb() __asm__ __volatile__("" :: \
+				       : "memory")
 
 static long perf_event_open(
     struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags);
 
-
 static perf_event_attr pe = {
-	.type = perfIntelPtPerfType,		// used
-	.size = sizeof(perf_event_attr),	// used
-	.config = RTIT_CTL_DISRETC,	// used
-	{.sample_period = 0ull},
-	.sample_type = 0ull,
-	.read_format = 0ull,
-	.disabled = true,		// used
-	.inherit = false,
-	.pinned = false,
-	.exclusive = false,
-	.exclude_user = true,		// used
-	.exclude_kernel = false,	// used
-	.exclude_hv = true,			// used
-	.exclude_idle = true,		// used
-	.mmap = false,
-	.comm = false,
-	.freq = false,
-	.inherit_stat = false,
-	.enable_on_exec = false,
+    .type = perfIntelPtPerfType, // used
+    .size = sizeof(perf_event_attr), // used
+    .config = RTIT_CTL_DISRETC, // used
+    {.sample_period = 0ull},
+    .sample_type = 0ull,
+    .read_format = 0ull,
+    .disabled = true, // used
+    .inherit = false,
+    .pinned = false,
+    .exclusive = false,
+    .exclude_user = true, // used
+    .exclude_kernel = false, // used
+    .exclude_hv = true, // used
+    .exclude_idle = true, // used
+    .mmap = false,
+    .comm = false,
+    .freq = false,
+    .inherit_stat = false,
+    .enable_on_exec = false,
 };
 
 libxdc_config_t libxdc_cfg = {
-	.filter = FILTERS,
-	.page_cache_fetch_fptr = &page_fetch_callback,
-	.page_cache_fetch_opaque = (void*)fetch_memory_page,
-	.bitmap_ptr = NULL,
-	.bitmap_size = 0x10000,
-	.signal_ptr = NULL,
-	.signal_size = 0x100000,
-	.align_psb = false,
+    .filter = FILTERS,
+    .page_cache_fetch_fptr = &page_fetch_callback,
+    .page_cache_fetch_opaque = (void*)fetch_memory_page,
+    .bitmap_ptr = NULL,
+    .bitmap_size = 0x10000,
+    .signal_ptr = NULL,
+    .signal_size = 0x100000,
+    .align_psb = false,
 };
 
 struct ipt_driver_t {
@@ -108,7 +115,8 @@ struct ipt_decoder_t {
 	uint32_t* signal_data;
 	uint8_t* trace_input;
 
-	void init() {
+	void init()
+	{
 		// mmap signal
 		signal_data = (uint32_t*)mmap(NULL, libxdc_cfg.signal_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 		libxdc_cfg.signal_ptr = signal_data;
@@ -119,7 +127,8 @@ struct ipt_decoder_t {
 		trace_input = (uint8_t*)mmap(NULL, _PERF_AUX_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	}
 
-	void decode(uint64_t size) {
+	void decode(uint64_t size)
+	{
 		printf("Decoding trace..., size: 0x%lx\n", size);
 		struct timeval start, end;
 		gettimeofday(&start, NULL);
@@ -133,26 +142,31 @@ struct ipt_decoder_t {
 		}
 	}
 
-	inline uint32_t get_signal(uint32_t index) {
+	inline uint32_t get_signal(uint32_t index)
+	{
 		return signal_data[index + 1];
 	}
 
-	void reset_signal() {
+	void reset_signal()
+	{
 		*(uint32_t*)signal_data = 0;
 	}
 
-	uint32_t get_signal_count() {
+	uint32_t get_signal_count()
+	{
 		return *(uint32_t*)signal_data;
 	}
 };
 
 ipt_driver_t ipt_driver;
 
-void* fetch_memory_page(uint64_t addr, uint8_t* driver_buf) {
+void* fetch_memory_page(uint64_t addr, uint8_t* driver_buf)
+{
 	return (void*)(driver_buf + (addr - SYZIPT_MMAP_BASE));
 }
 
-void* page_fetch_callback(void* memory_reader_func, uint64_t addr, bool* ret) {
+void* page_fetch_callback(void* memory_reader_func, uint64_t addr, bool* ret)
+{
 	addr &= 0xfffffffffffff000;
 	// printf("Info: page base addr 0x%lx\n", addr);
 	fetch_memory_page_t fetch_memory_page_func = (fetch_memory_page_t)memory_reader_func;

@@ -8,8 +8,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "cov_ipt.h"
-
 #if SYZ_EXECUTOR
 const int kExtraCoverSize = 256 << 10;
 struct cover_t;
@@ -3271,10 +3269,10 @@ static void checkpoint_iptables(struct ipt_table_desc* tables, int num_tables, i
 		      table->info.valid_hooks, table->info.size);
 		if (table->info.size > sizeof(table->replace.entrytable)) {
 			debug("iptable checkpoint: table size is too large, but continue\ntable=%s, family=%d, size=%u\n",
-				table->name, family, table->info.size);
+			      table->name, family, table->info.size);
 			continue;
 			// failmsg("iptable checkpoint: table size is too large", "table=%s, family=%d, size=%u",
-				// table->name, family, table->info.size);
+			// table->name, family, table->info.size);
 		}
 		if (table->info.num_entries > XT_MAX_ENTRIES)
 			failmsg("iptable checkpoint: too many counters", "table=%s, family=%d, counters=%d",
@@ -3868,7 +3866,7 @@ static void sandbox_common()
 #if SYZ_EXECUTOR
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20) +
 					(kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
-if (flag_coverage_intelpt)
+	if (flag_coverage_intelpt)
 		rlim.rlim_cur += (kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
 #else
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20);
@@ -5601,7 +5599,9 @@ static void setup_swap()
 		return;
 	}
 	// We cannot do ftruncate -- swapon complains about this. Do fallocate instead.
-	fallocate(fd, FALLOC_FL_ZERO_RANGE, 0, SWAP_FILE_SIZE);
+	// fallocate(fd, FALLOC_FL_ZERO_RANGE, 0, SWAP_FILE_SIZE);
+	// But fallocate is not supported on all filesystems, so do write instead.
+	fallocate(fd, 0, 0, SWAP_FILE_SIZE);
 	close(fd);
 	// Set up the swap file.
 	char cmdline[64];

@@ -142,9 +142,8 @@ func (ctx *Context) Run() error {
 		}
 		if req.Bin != "" {
 			// TODO: for debug
-			// os.Remove(req.Bin)
+			os.Remove(req.Bin)
 		}
-		log.Logf(0, "req.ok: %v; req.broken: %v; req.skip: %v; req.fail: %v", ok, broken, skip, fail)
 	}
 	if err := <-errc; err != nil {
 		return err
@@ -716,13 +715,12 @@ func runTestC(req *RunRequest) {
 		return
 	}
 	defer os.RemoveAll(tmpDir)
-	cmd := osutil.Command("strace", "-f", req.Bin)
+	cmd := osutil.Command(req.Bin)
 	cmd.Dir = tmpDir
 	// Tell ASAN to not mess with our NONFAILING.
 	cmd.Env = append(append([]string{}, os.Environ()...), "ASAN_OPTIONS=handle_segv=0 allow_user_segv_handler=1")
 	log.Logf(0, "running %v", cmd.Args)
 	req.Output, req.Err = osutil.Run(20*time.Second, cmd)
-	log.Logf(0, "output:\n%s", req.Output)
 	var verr *osutil.VerboseError
 	if errors.As(req.Err, &verr) {
 		// The process can legitimately do something like exit_group(1).
