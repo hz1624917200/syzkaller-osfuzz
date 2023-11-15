@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -159,30 +158,31 @@ func (ctx *Context) generatePrograms(progs chan *RunRequest) error {
 	log.Logf(0, "Generating programs...")
 	// cover := []bool{false}
 	// TODO: simplified for debugging
-	cover := []bool{}
-	if ctx.Features[host.FeatureCoverage].Enabled ||
-		ctx.Features[host.FeatureCoverageIpt].Enabled {
+	cover := []bool{false}
+	cover_ipt := []bool{false}
+	if ctx.Features[host.FeatureCoverage].Enabled {
 		cover = append(cover, true)
 	}
-	cover_ipt := false
 	if ctx.Features[host.FeatureCoverageIpt].Enabled {
-		cover_ipt = true
+		cover_ipt = append(cover_ipt, true)
 	}
 	var sandboxes []string
-	for sandbox := range ctx.EnabledCalls {
-		sandboxes = append(sandboxes, sandbox)
-	}
-	sort.Strings(sandboxes)
+	sandboxes = append(sandboxes, "none")
+	// for sandbox := range ctx.EnabledCalls {
+	// 	sandboxes = append(sandboxes, sandbox)
+	// }
+	// sort.Strings(sandboxes)
 	files, err := progFileList(ctx.Dir, ctx.Tests)
 	if err != nil {
 		return err
 	}
-	log.Logf(0, "generating file: sandboxes: %v; cover: %v; file: %v", sandboxes, cover, files)
+	log.Logf(0, "generating file: sandboxes: %v; cover: %v; cover_ipt: %v; file: %v", sandboxes, cover, cover_ipt, files)
 	for _, file := range files {
 		if err := ctx.generateFile(progs, sandboxes, cover, cover_ipt, file); err != nil {
 			return err
 		}
 	}
+	log.Logf(0, "generated %v programs", len(progs))
 	return nil
 }
 
@@ -203,7 +203,7 @@ func progFileList(dir, filter string) ([]string, error) {
 	return res, nil
 }
 
-func (ctx *Context) generateFile(progs chan *RunRequest, sandboxes []string, cover []bool, cover_ipt bool, filename string) error {
+func (ctx *Context) generateFile(progs chan *RunRequest, sandboxes []string, cover []bool, cover_ipt []bool, filename string) error {
 	p, requires, results, err := parseProg(ctx.Target, ctx.Dir, filename)
 	if err != nil {
 		return err
@@ -230,16 +230,13 @@ nextSandbox:
 			"littleendian":       ctx.Target.LittleEndian,
 		}
 		// TODO: temp simplified for debugging
-		// for _, threaded := range []bool{false, true} {
-		for _, threaded := range []bool{false} {
+		for _, threaded := range []bool{false, true} {
 			name := name
 			if threaded {
 				name += "/thr"
 			}
 			properties["threaded"] = threaded
-			// TODO: for debug
-			// for _, times := range []int{1, 3} {
-			for _, times := range []int{1} {
+			for _, times := range []int{1, 3} {
 				properties["repeat"] = times > 1
 				properties["norepeat"] = times <= 1
 				if times > 1 {
@@ -249,25 +246,25 @@ nextSandbox:
 					if sandbox == "" {
 						break // executor does not support empty sandbox
 					}
-					name := name
-					if cov {
-						name += "/cover"
-					}
-					if cover_ipt {
-						properties["cover"] = false
-						properties["cover_ipt"] = cov
-					} else {
+					for _, cov_ipt := range cover_ipt {
+						if cov && cov_ipt {
+							// kcov and intel PT coverage are exclusive
+							break
+						}
+						name := name
+						if cov || cov_ipt {
+							name += "/cover"
+						}
 						properties["cover"] = cov
-						properties["cover_ipt"] = false
+						properties["cover_ipt"] = cov_ipt
+						properties["C"] = false
+						properties["executor"] = true
+						req, err := ctx.createSyzTest(p, sandbox, threaded, cov, cov_ipt, times)
+						if err != nil {
+							return err
+						}
+						ctx.produceTest(progs, req, name, properties, requires, results)
 					}
-					properties["C"] = false
-					properties["executor"] = true
-					// req, err := ctx.createSyzTest(p, sandbox, threaded, cov, cover_ipt, times)
-					if err != nil {
-						return err
-					}
-					// TODO: for debug
-					// ctx.produceTest(progs, req, name, properties, requires, results)
 				}
 				if sysTarget.HostFuzzer {
 					// For HostFuzzer mode, we need to cross-compile
@@ -438,13 +435,12 @@ func (ctx *Context) createSyzTest(p *prog.Prog, sandbox string, threaded, cov bo
 		opts.Flags |= ipc.FlagThreaded
 	}
 	if cov {
-		if cov_ipt {
-			cfg.Flags |= ipc.FlagSignalIpt
-			opts.Flags |= ipc.FlagCollectCoverIpt
-		} else {
-			cfg.Flags |= ipc.FlagSignal
-			opts.Flags |= ipc.FlagCollectCover
-		}
+		cfg.Flags |= ipc.FlagKcov
+		opts.Flags |= ipc.FlagCollectCover
+	}
+	if cov_ipt {
+		cfg.Flags |= ipc.FlagSignalIpt
+		opts.Flags |= ipc.FlagCollectSignal
 	}
 	if ctx.Features[host.FeatureExtraCoverage].Enabled {
 		cfg.Flags |= ipc.FlagExtraCover
@@ -600,7 +596,7 @@ func checkCallResult(req *RunRequest, isC bool, run, call int, info *ipc.ProgInf
 	if isC || inf.Flags&ipc.CallExecuted == 0 {
 		return nil
 	}
-	if req.Cfg.Flags&ipc.FlagSignal != 0 {
+	if req.Cfg.Flags&ipc.FlagKcov != 0 {
 		// Signal is always deduplicated, so we may not get any signal
 		// on a second invocation of the same syscall.
 		// For calls that are not meant to collect synchronous coverage we
@@ -687,6 +683,7 @@ func RunTest(req *RunRequest, executor string) {
 				return
 			}
 		}
+		log.Logf(0, "!!!!!!!!!!!!!!!! Start Execution !!!!!!!!!!!!!!!!!")
 		output, info, hanged, err := env.Exec(req.Opts, req.P)
 		req.Output = append(req.Output, output...)
 		if err != nil {

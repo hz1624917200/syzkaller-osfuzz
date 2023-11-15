@@ -15,8 +15,8 @@ import (
 var (
 	flagExecutor   = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagThreaded   = flag.Bool("threaded", true, "use threaded mode in executor")
-	flagSignal     = flag.Bool("cover", false, "collect feedback signals (coverage)")
-	flagSignalIpt  = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
+	flagCoverKcov  = flag.Bool("cover", false, "collect feedback signals (coverage)")
+	flagCoverIpt   = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
 	flagSandbox    = flag.String("sandbox", "none", "sandbox for fuzzing (none/setuid/namespace/android)")
 	flagSandboxArg = flag.Int("sandbox_arg", 0, "argument for sandbox runner to adjust it via config")
 	flagDebug      = flag.Bool("debug", false, "debug output from executor")
@@ -29,12 +29,12 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 		Executor: *flagExecutor,
 		Timeouts: sysTarget.Timeouts(*flagSlowdown),
 	}
-	if *flagSignal {
-		c.Flags |= ipc.FlagSignal
+	if *flagCoverKcov {
+		c.Flags |= ipc.FlagKcov
 	}
-	if *flagSignalIpt {
-		if !*flagSignal {
-			return nil, nil, fmt.Errorf("can't use -cover_ipt without -cover")
+	if *flagCoverIpt {
+		if *flagCoverKcov {
+			return nil, nil, fmt.Errorf("can't use -cover_ipt with -cover")
 		}
 		c.Flags |= ipc.FlagSignalIpt
 	}
@@ -55,7 +55,8 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 	if *flagThreaded {
 		opts.Flags |= ipc.FlagThreaded
 	}
-	if *flagSignal {
+	// log.Logf(0, "!!!!!!!!!!!!!!!Coverkcov: %v; Coveript: %v", *flagCoverKcov, *flagCoverIpt)
+	if *flagCoverKcov || *flagCoverIpt {
 		opts.Flags |= ipc.FlagCollectSignal
 	}
 

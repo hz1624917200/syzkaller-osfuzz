@@ -29,7 +29,7 @@ type EnvFlags uint64
 // Note: New / changed flags should be added to parse_env_flags in executor.cc.
 const (
 	FlagDebug               EnvFlags = 1 << iota // debug output from executor
-	FlagSignal                                   // collect feedback signals (coverage)
+	FlagKcov                                     // collect feedback signals (coverage)
 	FlagSandboxSetuid                            // impersonate nobody user
 	FlagSandboxNamespace                         // use namespaces for sandboxing
 	FlagSandboxAndroid                           // use Android sandboxing for the untrusted_app domain
@@ -53,7 +53,6 @@ type ExecFlags uint64
 const (
 	FlagCollectSignal        ExecFlags = 1 << iota // collect feedback signals
 	FlagCollectCover                               // collect coverage
-	FlagCollectCoverIpt                            // collect coverage via Intel PT
 	FlagDedupCover                                 // deduplicate coverage in executor
 	FlagCollectComps                               // collect KCOV comparisons
 	FlagThreaded                                   // use multiple threads to mitigate blocked syscalls
@@ -294,7 +293,7 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 	}
 
 	info, err0 = env.parseOutput(p, opts)
-	if info != nil && env.config.Flags&FlagSignal == 0 {
+	if info != nil && env.config.Flags&FlagKcov == 0 {
 		addFallbackSignal(p, info)
 	}
 	// log.Logf(0, "info signals:\n")

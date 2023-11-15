@@ -317,11 +317,11 @@ func createConfig(target *prog.Target, features *host.Features, featuresFlags cs
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	if config.Flags&ipc.FlagSignal != 0 {
+	if config.Flags&ipc.FlagKcov != 0 {
 		execOpts.Flags |= ipc.FlagCollectCover
 	}
 	if *flagCoverFile != "" {
-		config.Flags |= ipc.FlagSignal
+		config.Flags |= ipc.FlagKcov
 		execOpts.Flags |= ipc.FlagCollectCover
 		execOpts.Flags &^= ipc.FlagDedupCover
 	}
