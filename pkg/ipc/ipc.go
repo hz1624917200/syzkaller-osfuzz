@@ -293,7 +293,7 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 	}
 
 	info, err0 = env.parseOutput(p, opts)
-	if info != nil && env.config.Flags&FlagKcov == 0 {
+	if info != nil && env.config.Flags&FlagKcov == 0 && env.config.Flags&FlagSignalIpt == 0 {
 		addFallbackSignal(p, info)
 	}
 	// log.Logf(0, "info signals:\n")

@@ -814,6 +814,7 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 		Procs:     procs,
 		Verbosity: fuzzerV,
 		Cover:     mgr.cfg.Cover,
+		CoverIpt:  mgr.cfg.CoverIpt,
 		Debug:     *flagDebug,
 		Test:      false,
 		Runtest:   false,

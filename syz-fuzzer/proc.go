@@ -138,6 +138,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 			rawCover = append([]uint32{}, thisCover...)
 		}
 		newSignal = newSignal.Intersection(thisSignal)
+		log.Logf(0, "---------------------- New signal: %v -------------------------", newSignal.Len())
 		// Without !minimized check manager starts losing some considerable amount
 		// of coverage after each restart. Mechanics of this are not completely clear.
 		if newSignal.Empty() && item.flags&ProgMinimized == 0 {
