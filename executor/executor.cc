@@ -712,18 +712,17 @@ void receive_execute()
 	flag_comparisons = req.exec_flags & (1 << 3);
 	flag_threaded = req.exec_flags & (1 << 4);
 	flag_coverage_filter = req.exec_flags & (1 << 5);
+	debug("[%llums] exec opts: procid=%llu threaded=%d cover=%d comps=%d dedup=%d signal=%d"
+	      " timeouts=%llu/%llu/%llu prog=%llu filter=%d\n",
+	      current_time_ms() - start_time_ms, procid, flag_threaded, flag_collect_cover,
+	      flag_comparisons, flag_dedup_cover, flag_collect_signal, syscall_timeout_ms,
+	      program_timeout_ms, slowdown_scale, req.prog_size, flag_coverage_filter);
 	// suppress invalid flags
 	if (flag_coverage_intelpt && (flag_collect_cover || flag_comparisons)) {
 		debug("Warning: intel PT coverage is enabled, disable kcov coverage options\n");
 		flag_collect_cover = false;
 		flag_comparisons = false;
 	}
-
-	debug("[%llums] exec opts: procid=%llu threaded=%d cover=%d comps=%d dedup=%d signal=%d"
-	      " timeouts=%llu/%llu/%llu prog=%llu filter=%d\n",
-	      current_time_ms() - start_time_ms, procid, flag_threaded, flag_collect_cover,
-	      flag_comparisons, flag_dedup_cover, flag_collect_signal, syscall_timeout_ms,
-	      program_timeout_ms, slowdown_scale, req.prog_size, flag_coverage_filter);
 	if (syscall_timeout_ms == 0 || program_timeout_ms <= syscall_timeout_ms || slowdown_scale == 0)
 		failmsg("bad timeouts", "syscall=%llu, program=%llu, scale=%llu",
 			syscall_timeout_ms, program_timeout_ms, slowdown_scale);
@@ -1180,6 +1179,7 @@ void handle_completion(thread_t* th)
 	write_extra_output();
 	th->executing = false;
 	running--;
+	debug("thread #%d completed, still running %d\n", th->id, running);
 	if (running < 0) {
 		// This fires periodically for the past 2 years (see issue #502).
 		fprintf(stderr, "running=%d completed=%d flag_threaded=%d current=%d\n",
@@ -1279,7 +1279,7 @@ void write_call_output(thread_t* th, bool finished)
 		else
 			write_coverage_ipt<uint32>(&th->decoder, &th->cov, signal_count_pos);
 	}
-	debug_verbose("out #%u: index=%u num=%u errno=%d finished=%d blocked=%d sig=%u cover=%u comps=%u\n",
+	debug("out #%u: index=%u num=%u errno=%d finished=%d blocked=%d sig=%u cover=%u comps=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, finished, blocked,
 		      *signal_count_pos, *cover_count_pos, *comps_count_pos);
 	completed++;
