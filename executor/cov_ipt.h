@@ -1,13 +1,15 @@
 #pragma once
+extern "C" {
+#include <libxdc.h>
+}
+
+#ifdef GOOS_linux
 #include <linux/perf_event.h>
 #include <sched.h>
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/time.h>
 
-extern "C" {
-#include <libxdc.h>
-}
 
 #define SYZIPT_MMAP_PAGES 512 * 1024
 #define SYZIPT_MMAP_BASE 0xffffffff80000000
@@ -93,6 +95,11 @@ static perf_event_attr pe = {
     .inherit_stat = false,
     .enable_on_exec = false,
 };
+#endif		// GOOS_linux
+
+#ifdef GOOS_windows
+	// TODO
+#endif 		// GOOS_windows
 
 libxdc_config_t libxdc_cfg = {
     .filter = FILTERS,
