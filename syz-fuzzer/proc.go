@@ -61,7 +61,7 @@ func newProc(fuzzer *Fuzzer, pid int) (*Proc, error) {
 
 func (proc *Proc) loop() {
 	generatePeriod := 100
-	if proc.fuzzer.config.Flags&ipc.FlagKcov == 0 {
+	if proc.fuzzer.config.Flags&ipc.FlagKcov == 0 && proc.fuzzer.config.Flags*ipc.FlagIpt == 0 {
 		// If we don't have real coverage signal, generate programs more frequently
 		// because fallback signal is weak.
 		generatePeriod = 2

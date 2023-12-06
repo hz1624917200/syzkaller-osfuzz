@@ -103,7 +103,7 @@ var statNames = [StatCount]string{
 	StatBufferTooSmall: "buffer too small",
 }
 
-type OutputType int // TODO: what is this?
+type OutputType int
 
 const (
 	OutputNone OutputType = iota
@@ -232,6 +232,7 @@ func main() {
 		checkArgs.featureFlags = featureFlags
 		r.CheckResult, err = checkMachine(checkArgs)
 		if err != nil {
+			log.Logf(0, "CheckMachine Error: %v", err)
 			if r.CheckResult == nil {
 				r.CheckResult = new(rpctype.CheckArgs)
 			}

@@ -249,7 +249,7 @@ nextSandbox:
 					for _, cov_ipt := range cover_ipt {
 						if cov && cov_ipt {
 							// kcov and intel PT coverage are exclusive
-							break
+							continue
 						}
 						name := name
 						if cov || cov_ipt {
@@ -437,9 +437,10 @@ func (ctx *Context) createSyzTest(p *prog.Prog, sandbox string, threaded, cov bo
 	if cov {
 		cfg.Flags |= ipc.FlagKcov
 		opts.Flags |= ipc.FlagCollectCover
+		opts.Flags |= ipc.FlagCollectSignal
 	}
 	if cov_ipt {
-		cfg.Flags |= ipc.FlagSignalIpt
+		cfg.Flags |= ipc.FlagIpt
 		opts.Flags |= ipc.FlagCollectSignal
 	}
 	if ctx.Features[host.FeatureExtraCoverage].Enabled {

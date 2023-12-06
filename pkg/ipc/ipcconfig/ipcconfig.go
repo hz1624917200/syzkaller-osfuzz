@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/google/syzkaller/pkg/ipc"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/prog"
 	"github.com/google/syzkaller/sys/targets"
 )
@@ -36,7 +37,7 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 		if *flagCoverKcov {
 			return nil, nil, fmt.Errorf("can't use -cover_ipt with -cover")
 		}
-		c.Flags |= ipc.FlagSignalIpt
+		c.Flags |= ipc.FlagIpt
 	}
 	if *flagDebug {
 		c.Flags |= ipc.FlagDebug
@@ -55,7 +56,7 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 	if *flagThreaded {
 		opts.Flags |= ipc.FlagThreaded
 	}
-	// log.Logf(0, "!!!!!!!!!!!!!!!Coverkcov: %v; Coveript: %v", *flagCoverKcov, *flagCoverIpt)
+	log.Logf(0, "!!!!!!!!!!!!!!!Coverkcov: %v; Coveript: %v", *flagCoverKcov, *flagCoverIpt)
 	if *flagCoverKcov || *flagCoverIpt {
 		opts.Flags |= ipc.FlagCollectSignal
 	}

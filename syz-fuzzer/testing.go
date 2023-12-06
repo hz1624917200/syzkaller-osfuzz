@@ -142,7 +142,7 @@ func checkMachine(args *checkArgs) (*rpctype.CheckArgs, error) {
 		return nil, fmt.Errorf("kcov coverage is not supported (%v)", feat.Reason)
 	}
 	if feat := features[host.FeatureCoverageIpt]; !feat.Enabled &&
-		args.ipcConfig.Flags&ipc.FlagSignalIpt != 0 {
+		args.ipcConfig.Flags&ipc.FlagIpt != 0 {
 		return nil, fmt.Errorf("intel PT coverage is not supported (%v)", feat.Reason)
 	}
 	if feat := features[host.FeatureSandboxSetuid]; !feat.Enabled &&

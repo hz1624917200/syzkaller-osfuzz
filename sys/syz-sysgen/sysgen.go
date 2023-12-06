@@ -42,6 +42,7 @@ type ArchData struct {
 	Revision   string
 	ForkServer int
 	Shmem      int
+	Ipt        int
 	GOARCH     string
 	PageSize   uint64
 	NumPages   uint64
@@ -225,11 +226,11 @@ func generate(target *targets.Target, prg *compiler.Prog, consts map[string]uint
 	fmt.Fprintf(out, "func init() {\n")
 	fmt.Fprintf(out, "\tRegisterTarget(&Target{"+
 		"OS: %q, Arch: %q, Revision: revision_%v, PtrSize: %v, PageSize: %v, "+
-		"NumPages: %v, DataOffset: %v, LittleEndian: %v, ExecutorUsesShmem: %v, "+
+		"NumPages: %v, DataOffset: %v, LittleEndian: %v, ExecutorUsesShmem: %v, ExecutorUsesIpt: %v"+
 		"Syscalls: syscalls_%v, Resources: resources_%v, Consts: consts_%v}, "+
 		"types_%v, InitTarget)\n}\n\n",
 		target.OS, target.Arch, target.Arch, target.PtrSize, target.PageSize,
-		target.NumPages, target.DataOffset, target.LittleEndian, target.ExecutorUsesShmem,
+		target.NumPages, target.DataOffset, target.LittleEndian, target.ExecutorUsesShmem, target.ExecutorUsesIpt,
 		target.Arch, target.Arch, target.Arch, target.Arch)
 
 	fmt.Fprintf(out, "var resources_%v = ", target.Arch)
@@ -269,6 +270,9 @@ func generateExecutorSyscalls(target *targets.Target, syscalls []*prog.Syscall, 
 	}
 	if target.ExecutorUsesShmem {
 		data.Shmem = 1
+	}
+	if target.ExecutorUsesIpt {
+		data.Ipt = 1
 	}
 	defines := make(map[string]string)
 	for _, c := range syscalls {
@@ -388,6 +392,7 @@ struct call_props_t { {{range $attr := $.CallProps}}
 #define SYZ_PAGE_SIZE {{.PageSize}}
 #define SYZ_NUM_PAGES {{.NumPages}}
 #define SYZ_DATA_OFFSET {{.DataOffset}}
+#define SYZ_USE_IPT {{.Ipt}}
 {{range $c := $arch.Defines}}#ifndef {{$c.Name}}
 #define {{$c.Name}} {{$c.Value}}
 #endif
