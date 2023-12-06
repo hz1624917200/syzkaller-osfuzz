@@ -750,6 +750,9 @@ func initTarget(target *Target, OS, arch string) {
 		target.ExecutorUsesForkServer = false
 		target.HostFuzzer = true
 	}
+	if OS == Linux && os.Getenv("SYZ_USE_IPT") != "" {
+		target.ExecutorUsesIpt = true
+	}
 }
 
 func (target *Target) Timeouts(slowdown int) Timeouts {
