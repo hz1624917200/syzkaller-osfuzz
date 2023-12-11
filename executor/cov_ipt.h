@@ -1,7 +1,9 @@
 #pragma once
+#ifdef SYZ_USE_IPT
 extern "C" {
 #include <libxdc.h>
 }
+#endif	// SYZ_USE_IPT
 
 #ifdef GOOS_linux
 #include <linux/perf_event.h>

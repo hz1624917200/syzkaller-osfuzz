@@ -562,6 +562,7 @@ var oses = map[string]osCommon{
 		SyscallNumbers:         false,
 		ExecutorUsesShmem:      false,
 		ExecutorUsesForkServer: false,
+		ExecutorUsesIpt:        true,
 		ExeExtension:           ".exe",
 		KernelObject:           "vmlinux",
 	},
@@ -749,9 +750,6 @@ func initTarget(target *Target, OS, arch string) {
 		target.ExecutorUsesShmem = false
 		target.ExecutorUsesForkServer = false
 		target.HostFuzzer = true
-	}
-	if OS == Linux && os.Getenv("SYZ_USE_IPT") != "" {
-		target.ExecutorUsesIpt = true
 	}
 }
 

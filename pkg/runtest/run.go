@@ -140,7 +140,6 @@ func (ctx *Context) Run() error {
 			ctx.log("%-38v: %v", req.name, result)
 		}
 		if req.Bin != "" {
-			// TODO: for debug
 			os.Remove(req.Bin)
 		}
 	}
