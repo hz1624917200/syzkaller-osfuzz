@@ -5,7 +5,7 @@ extern "C" {
 }
 #endif	// SYZ_USE_IPT
 
-#ifdef GOOS_linux
+#if GOOS_linux
 #include <linux/perf_event.h>
 #include <sched.h>
 #include <stdint.h>
@@ -97,11 +97,11 @@ static perf_event_attr pe = {
     .inherit_stat = false,
     .enable_on_exec = false,
 };
-#endif		// GOOS_linux
+#endif		// GOOS_LINUX
 
-#ifdef GOOS_windows
+#if GOOS_windows
 	// TODO
-#endif 		// GOOS_windows
+#endif		// GOOS_WINDOWS
 
 libxdc_config_t libxdc_cfg = {
     .filter = FILTERS,
