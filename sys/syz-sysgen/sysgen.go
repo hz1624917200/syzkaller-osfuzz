@@ -42,6 +42,7 @@ type ArchData struct {
 	Revision   string
 	ForkServer int
 	Shmem      int
+	Ipt        int
 	GOARCH     string
 	PageSize   uint64
 	NumPages   uint64
@@ -270,6 +271,9 @@ func generateExecutorSyscalls(target *targets.Target, syscalls []*prog.Syscall, 
 	if target.ExecutorUsesShmem {
 		data.Shmem = 1
 	}
+	if target.ExecutorUsesIpt {
+		data.Ipt = 1
+	}
 	defines := make(map[string]string)
 	for _, c := range syscalls {
 		var attrVals []uint64
@@ -388,6 +392,7 @@ struct call_props_t { {{range $attr := $.CallProps}}
 #define SYZ_PAGE_SIZE {{.PageSize}}
 #define SYZ_NUM_PAGES {{.NumPages}}
 #define SYZ_DATA_OFFSET {{.DataOffset}}
+#define SYZ_USE_IPT {{.Ipt}}
 {{range $c := $arch.Defines}}#ifndef {{$c.Name}}
 #define {{$c.Name}} {{$c.Value}}
 #endif

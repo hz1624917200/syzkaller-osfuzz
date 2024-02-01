@@ -183,6 +183,7 @@ func (mgr *Manager) boot(name string, index int) (*report.Report, error) {
 		Procs:     mgr.cfg.Procs,
 		Verbosity: 0,
 		Cover:     mgr.cfg.Cover,
+		CoverIpt:  mgr.cfg.CoverIpt,
 		Debug:     mgr.debug,
 		Test:      false,
 		Runtest:   true,

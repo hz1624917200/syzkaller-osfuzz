@@ -4,6 +4,7 @@
 *.tmp
 *.img
 workdir*
+build
 
 bin/
 dashboard/app/config_prod.go

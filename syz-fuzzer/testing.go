@@ -138,8 +138,12 @@ func checkMachine(args *checkArgs) (*rpctype.CheckArgs, error) {
 		return nil, err
 	}
 	if feat := features[host.FeatureCoverage]; !feat.Enabled &&
-		args.ipcConfig.Flags&ipc.FlagSignal != 0 {
-		return nil, fmt.Errorf("coverage is not supported (%v)", feat.Reason)
+		args.ipcConfig.Flags&ipc.FlagKcov != 0 {
+		return nil, fmt.Errorf("kcov coverage is not supported (%v)", feat.Reason)
+	}
+	if feat := features[host.FeatureCoverageIpt]; !feat.Enabled &&
+		args.ipcConfig.Flags&ipc.FlagIpt != 0 {
+		return nil, fmt.Errorf("intel PT coverage is not supported (%v)", feat.Reason)
 	}
 	if feat := features[host.FeatureSandboxSetuid]; !feat.Enabled &&
 		args.ipcConfig.Flags&ipc.FlagSandboxSetuid != 0 {
@@ -269,7 +273,7 @@ func checkSimpleProgram(args *checkArgs, features *host.Features) error {
 	if info.Calls[0].Errno != 0 {
 		return fmt.Errorf("simple call failed: %+v\n%s", info.Calls[0], output)
 	}
-	if args.ipcConfig.Flags&ipc.FlagSignal != 0 && len(info.Calls[0].Signal) < 2 {
+	if args.ipcConfig.Flags&ipc.FlagKcov != 0 && len(info.Calls[0].Signal) < 2 {
 		return fmt.Errorf("got no coverage:\n%s", output)
 	}
 	if len(info.Calls[0].Signal) < 1 {

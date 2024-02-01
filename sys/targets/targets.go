@@ -66,6 +66,8 @@ type osCommon struct {
 	ExecutorUsesShmem bool
 	// If ExecutorUsesForkServer, executor uses extended protocol with handshake.
 	ExecutorUsesForkServer bool
+	// If ExecutorUsesIpt, executor uses Intel PT for coverage feedback
+	ExecutorUsesIpt bool
 	// Special mode for OSes that do not have support for building Go binaries.
 	// In this mode we run Go binaries on the host machine, only executor runs on target.
 	HostFuzzer bool
@@ -560,6 +562,7 @@ var oses = map[string]osCommon{
 		SyscallNumbers:         false,
 		ExecutorUsesShmem:      false,
 		ExecutorUsesForkServer: false,
+		ExecutorUsesIpt:        true,
 		ExeExtension:           ".exe",
 		KernelObject:           "vmlinux",
 	},

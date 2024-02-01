@@ -8,8 +8,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "cov_ipt.h"
-
 #if SYZ_EXECUTOR
 const int kExtraCoverSize = 256 << 10;
 struct cover_t;
@@ -19,6 +17,10 @@ static void cover_reset(cover_t* cov);
 #if SYZ_EXECUTOR || SYZ_THREADED
 #include <linux/futex.h>
 #include <pthread.h>
+
+#if SYZ_USE_IPT
+#include "cov_ipt.h"
+#endif
 
 typedef struct {
 	int state;
@@ -3271,10 +3273,10 @@ static void checkpoint_iptables(struct ipt_table_desc* tables, int num_tables, i
 		      table->info.valid_hooks, table->info.size);
 		if (table->info.size > sizeof(table->replace.entrytable)) {
 			debug("iptable checkpoint: table size is too large, but continue\ntable=%s, family=%d, size=%u\n",
-				table->name, family, table->info.size);
+			      table->name, family, table->info.size);
 			continue;
 			// failmsg("iptable checkpoint: table size is too large", "table=%s, family=%d, size=%u",
-				// table->name, family, table->info.size);
+			// table->name, family, table->info.size);
 		}
 		if (table->info.num_entries > XT_MAX_ENTRIES)
 			failmsg("iptable checkpoint: too many counters", "table=%s, family=%d, counters=%d",
@@ -3864,27 +3866,27 @@ static void sandbox_common()
 	close(netns);
 #endif
 
-	struct rlimit rlim;
+	struct rlimit64 rlim;
 #if SYZ_EXECUTOR
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20) +
 					(kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
-if (flag_coverage_intelpt)
-		rlim.rlim_cur += (kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
+	if (flag_coverage_intelpt)
+		rlim.rlim_cur += SYZIPT_MMAP_PAGES * 4096ull;
 #else
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20);
 #endif
-	setrlimit(RLIMIT_AS, &rlim);
+	setrlimit64(RLIMIT_AS, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 32 << 20;
-	setrlimit(RLIMIT_MEMLOCK, &rlim);
+	setrlimit64(RLIMIT_MEMLOCK, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 136 << 20;
-	setrlimit(RLIMIT_FSIZE, &rlim);
+	setrlimit64(RLIMIT_FSIZE, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 1 << 20;
-	setrlimit(RLIMIT_STACK, &rlim);
+	setrlimit64(RLIMIT_STACK, &rlim);
 	// Note: core size is also restricted by RLIMIT_FSIZE.
 	rlim.rlim_cur = rlim.rlim_max = 128 << 20;
-	setrlimit(RLIMIT_CORE, &rlim);
+	setrlimit64(RLIMIT_CORE, &rlim);
 	rlim.rlim_cur = rlim.rlim_max = 256; // see kMaxFd
-	setrlimit(RLIMIT_NOFILE, &rlim);
+	setrlimit64(RLIMIT_NOFILE, &rlim);
 
 	// CLONE_NEWNS/NEWCGROUP cause EINVAL on some systems,
 	// so we do them separately of clone in do_sandbox_namespace.
@@ -4097,7 +4099,9 @@ static int namespace_sandbox_proc(void* arg)
 {
 	sandbox_common();
 
+	debug("!!!!!!!!!!!! Setup Sandbox namespace !!!!!!!!!!!\n");
 	// /proc/self/setgroups is not present on some systems, ignore error.
+	debug("real_uid: %d; real_gid: %d\n", real_uid, real_gid);
 	write_file("/proc/self/setgroups", "deny");
 	if (!write_file("/proc/self/uid_map", "0 %d 1\n", real_uid))
 		fail("write of /proc/self/uid_map failed");
@@ -4136,18 +4140,18 @@ static int namespace_sandbox_proc(void* arg)
 	if (mount("", "./syz-tmp", "tmpfs", 0, NULL))
 		fail("mount(tmpfs) failed");
 	if (mkdir("./syz-tmp/newroot", 0777))
-		fail("mkdir failed");
+		fail("mkdir(newroot) failed");
 	if (mkdir("./syz-tmp/newroot/dev", 0700))
-		fail("mkdir failed");
+		fail("mkdir(dev) failed");
 	unsigned bind_mount_flags = MS_BIND | MS_REC | MS_PRIVATE;
 	if (mount("/dev", "./syz-tmp/newroot/dev", NULL, bind_mount_flags, NULL))
 		fail("mount(dev) failed");
 	if (mkdir("./syz-tmp/newroot/proc", 0700))
-		fail("mkdir failed");
+		fail("mkdir(proc) failed");
 	if (mount(NULL, "./syz-tmp/newroot/proc", "proc", 0, NULL))
 		fail("mount(proc) failed");
 	if (mkdir("./syz-tmp/newroot/selinux", 0700))
-		fail("mkdir failed");
+		fail("mkdir(selinux) failed");
 	// selinux mount used to be at /selinux, but then moved to /sys/fs/selinux.
 	const char* selinux_path = "./syz-tmp/newroot/selinux";
 	if (mount("/selinux", selinux_path, NULL, bind_mount_flags, NULL)) {
@@ -4157,14 +4161,14 @@ static int namespace_sandbox_proc(void* arg)
 			fail("mount(/sys/fs/selinux) failed");
 	}
 	if (mkdir("./syz-tmp/newroot/sys", 0700))
-		fail("mkdir failed");
+		fail("mkdir(sys) failed");
 	if (mount("/sys", "./syz-tmp/newroot/sys", 0, bind_mount_flags, NULL))
 		fail("mount(sysfs) failed");
 #if SYZ_EXECUTOR || SYZ_CGROUPS
 	initialize_cgroups();
 #endif
 	if (mkdir("./syz-tmp/pivot", 0777))
-		fail("mkdir failed");
+		fail("mkdir(pivot) failed");
 	if (syscall(SYS_pivot_root, "./syz-tmp", "./syz-tmp/pivot")) {
 		debug("pivot_root failed\n");
 		if (chdir("./syz-tmp"))
@@ -4182,6 +4186,8 @@ static int namespace_sandbox_proc(void* arg)
 		fail("chdir failed");
 	setup_binderfs();
 	drop_caps();
+
+	debug("!!!!!!!!!!!! Setup Sandbox namespace END !!!!!!!!!!!\n");
 
 	loop();
 	doexit(1);
@@ -5601,7 +5607,9 @@ static void setup_swap()
 		return;
 	}
 	// We cannot do ftruncate -- swapon complains about this. Do fallocate instead.
-	fallocate(fd, FALLOC_FL_ZERO_RANGE, 0, SWAP_FILE_SIZE);
+	// fallocate(fd, FALLOC_FL_ZERO_RANGE, 0, SWAP_FILE_SIZE);
+	// But fallocate is not supported on all filesystems, so do write instead.
+	fallocate(fd, 0, 0, SWAP_FILE_SIZE);
 	close(fd);
 	// Set up the swap file.
 	char cmdline[64];

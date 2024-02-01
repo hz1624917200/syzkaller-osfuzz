@@ -123,6 +123,9 @@ host: manager runtest repro mutate prog2c db upgrade
 target: fuzzer execprog stress executor
 
 executor: descriptions
+# only in osfuzz works, need to build in Guest OS
+	# scp -P 10123 root@localhost:/root/syzkaller-osfuzz/build/syz-executor ./bin/$(TARGETOS)_$(TARGETARCH)/syz-executor$(EXE)
+	# chmod 770 ./bin/$(TARGETOS)_$(TARGETARCH)/syz-executor$(EXE)
 # Should compile this in Guest OS
 # TODO: Later Test kernel seperately
 # ifeq ($(TARGETOS),fuchsia)

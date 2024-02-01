@@ -133,9 +133,11 @@ type Config struct {
 
 	// Use KCOV coverage (default: true).
 	Cover bool `json:"cover"`
+	// Use Intel PT coverage instead (default: false)
+	CoverIpt bool `json:"cover_ipt"`
 	// Use coverage filter. Supported types of filter:
 	// "files": support specifying kernel source files, support regular expression.
-	// eg. "files": ["^net/core/tcp.c$", "^net/sctp/", "tcp"].
+	// eg. "files": ["^net/core/tcp.c$", "^net/lesctp/", "tcp"].
 	// "functions": support specifying kernel functions, support regular expression.
 	// eg. "functions": ["^foo$", "^bar", "baz"].
 	// "pcs": specify raw PC table files name.

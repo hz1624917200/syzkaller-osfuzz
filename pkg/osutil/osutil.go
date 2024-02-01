@@ -53,8 +53,8 @@ func Run(timeout time.Duration, cmd *exec.Cmd) ([]byte, error) {
 		select {
 		case <-timer.C:
 			timedout <- true
-			// killPgroup(cmd)
-			// cmd.Process.Kill()
+			killPgroup(cmd)
+			cmd.Process.Kill()
 		case <-done:
 			timedout <- false
 			timer.Stop()
