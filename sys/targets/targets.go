@@ -485,6 +485,7 @@ var oses = map[string]osCommon{
 		SyscallPrefix:          "__NR_",
 		ExecutorUsesShmem:      true,
 		ExecutorUsesForkServer: true,
+		ExecutorUsesIpt:        true,
 		KernelObject:           "vmlinux",
 		PseudoSyscallDeps: map[string][]string{
 			"syz_read_part_table": {"memfd_create"},
