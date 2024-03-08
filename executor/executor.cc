@@ -1369,11 +1369,11 @@ void* worker_thread(void* arg)
 		th->decoder.init();
 	}
 	for (;;) {
-		int fd = open("/dev/kasan0", O_RDWR);
-		bokasan_pid_info_t pid_info;
-		pid_info.pid = 0;		// current tid
-		if (ioctl(fd, BOKASAN_SET_PID, &pid_info) < 0)
-			fail("ioctl(BOKASAN_GET_PID_INFO) failed");
+		// int fd = open("/dev/kasan0", O_RDWR);
+		// bokasan_pid_info_t pid_info;
+		// pid_info.pid = 0;		// current tid
+		// if (ioctl(fd, BOKASAN_SET_PID, &pid_info) < 0)
+		// 	fail("ioctl(BOKASAN_GET_PID_INFO) failed");
 
 		event_wait(&th->ready);
 		event_reset(&th->ready);
