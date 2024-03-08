@@ -321,7 +321,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Limit concurrency window and do leak checking once in a while.
 	ticket := proc.fuzzer.gate.Enter()
-	defer proc.fuzzer.gate.Leave(ticket) // TODO: why leave here rather than after exection?
+	defer proc.fuzzer.gate.Leave(ticket)
 
 	proc.logProgram(opts, p)
 	for try := 0; ; try++ {

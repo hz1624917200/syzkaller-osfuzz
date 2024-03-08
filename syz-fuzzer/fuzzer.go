@@ -529,6 +529,7 @@ func (fuzzer *Fuzzer) addInputToCorpus(p *prog.Prog, sign signal.Signal, sig has
 	if _, ok := fuzzer.corpusHashes[sig]; !ok {
 		fuzzer.corpus = append(fuzzer.corpus, p)
 		fuzzer.corpusHashes[sig] = struct{}{}
+		// TODO: Add rating procedure, editing origin prio
 		prio := int64(len(sign))
 		if sign.Empty() {
 			prio = 1
