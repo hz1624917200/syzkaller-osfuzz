@@ -144,6 +144,9 @@ type Config struct {
 	// Each line of the file should be: "64-bit-pc:32-bit-weight\n".
 	// eg. "0xffffffff81000000:0x10\n"
 	CovFilter covFilterCfg `json:"cover_filter,omitempty"`
+	// Use kernel differential fuzzing (default: false).
+	// Guiding with coverage of diff basic blocks
+	CoverDiff bool `json:"cover_diff"`
 
 	// For each prog in the corpus, remember the raw array of PCs obtained from the kernel.
 	// It can be useful for debugging syzkaller descriptions and syzkaller itself.

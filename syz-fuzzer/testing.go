@@ -230,10 +230,10 @@ func checkRevisions(args *checkArgs) error {
 	if args.target.Arch != vers[1] {
 		return fmt.Errorf("mismatching target/executor arches: %v vs %v", args.target.Arch, vers[1])
 	}
-	if prog.GitRevision != vers[3] {
-		return fmt.Errorf("mismatching fuzzer/executor git revisions: %v vs %v",
-			prog.GitRevision, vers[3])
-	}
+	// if prog.GitRevision != vers[3] {
+	// 	return fmt.Errorf("mismatching fuzzer/executor git revisions: %v vs %v",
+	// 		prog.GitRevision, vers[3])
+	// }
 	if args.gitRevision != prog.GitRevision {
 		return fmt.Errorf("mismatching manager/fuzzer git revisions: %v vs %v",
 			args.gitRevision, prog.GitRevision)

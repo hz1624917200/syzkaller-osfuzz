@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/syzkaller/pkg/csource"
+	"github.com/google/syzkaller/pkg/diffmap"
 	"github.com/google/syzkaller/pkg/hash"
 	"github.com/google/syzkaller/pkg/host"
 	"github.com/google/syzkaller/pkg/ipc"
@@ -66,6 +67,8 @@ type Fuzzer struct {
 
 	checkResult *rpctype.CheckArgs
 	logMu       sync.Mutex
+
+	coverDiffMap *diffmap.DiffMap
 }
 
 type FuzzerSnapshot struct {
@@ -147,20 +150,20 @@ func main() {
 	debug.SetGCPercent(50)
 
 	var (
-		flagName     = flag.String("name", "test", "unique name for manager")
-		flagOS       = flag.String("os", runtime.GOOS, "target OS")
-		flagArch     = flag.String("arch", runtime.GOARCH, "target arch")
-		flagManager  = flag.String("manager", "", "manager rpc address")
-		flagProcs    = flag.Int("procs", 1, "number of parallel test processes")
-		flagOutput   = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
-		flagTest     = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
-		flagRunTest  = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
-		flagRawCover = flag.Bool("raw_cover", false, "fetch raw coverage")
+		flagName      = flag.String("name", "test", "unique name for manager")
+		flagOS        = flag.String("os", runtime.GOOS, "target OS")
+		flagArch      = flag.String("arch", runtime.GOARCH, "target arch")
+		flagManager   = flag.String("manager", "", "manager rpc address")
+		flagProcs     = flag.Int("procs", 1, "number of parallel test processes")
+		flagOutput    = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
+		flagTest      = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
+		flagRunTest   = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
+		flagRawCover  = flag.Bool("raw_cover", false, "fetch raw coverage")
+		flagCoverDiff = flag.Bool("cover_diff", false, "guiding with coverage of diff basic blocks")
 	)
 	defer tool.Init()()
 	outputType := parseOutputType(*flagOutput)
 	log.Logf(0, "fuzzer started")
-
 	target, err := prog.GetTarget(*flagOS, *flagArch)
 	if err != nil {
 		log.SyzFatalf("%v", err)
@@ -264,6 +267,12 @@ func main() {
 
 	needPoll := make(chan struct{}, 1)
 	needPoll <- struct{}{}
+
+	coverDiffMap := (*diffmap.DiffMap)(nil)
+	if *flagCoverDiff {
+		coverDiffMap = diffmap.Init()
+
+	}
 	fuzzer := &Fuzzer{
 		name:                     *flagName,
 		outputType:               outputType,
@@ -281,6 +290,7 @@ func main() {
 		fetchRawCover:            *flagRawCover,
 		noMutate:                 r.NoMutateCalls,
 		stats:                    make([]uint64, StatCount),
+		coverDiffMap:             coverDiffMap,
 	}
 	gateCallback := fuzzer.useBugFrames(r, *flagProcs)
 	fuzzer.gate = ipc.NewGate(2**flagProcs, gateCallback)
@@ -460,7 +470,8 @@ func (fuzzer *Fuzzer) addInputFromAnotherFuzzer(inp rpctype.Input) {
 	}
 	sig := hash.Hash(inp.Prog)
 	sign := inp.Signal.Deserialize()
-	fuzzer.addInputToCorpus(p, sign, sig)
+	// log.Logf(3, "new input from another fuzzer: %v, signals: %v, cover: %v", sig.String(), sign.Len(), len(inp.Cover))
+	fuzzer.addInputToCorpus(p, sign, sig, inp.Cover)
 }
 
 func (fuzzer *Fuzzer) addCandidateInput(candidate rpctype.Candidate) {
@@ -524,13 +535,13 @@ func (fuzzer *FuzzerSnapshot) chooseProgram(r *rand.Rand) *prog.Prog {
 	return fuzzer.corpus[idx]
 }
 
-func (fuzzer *Fuzzer) addInputToCorpus(p *prog.Prog, sign signal.Signal, sig hash.Sig) {
+func (fuzzer *Fuzzer) addInputToCorpus(p *prog.Prog, sign signal.Signal, sig hash.Sig, cover []uint32) {
 	fuzzer.corpusMu.Lock()
 	if _, ok := fuzzer.corpusHashes[sig]; !ok {
 		fuzzer.corpus = append(fuzzer.corpus, p)
 		fuzzer.corpusHashes[sig] = struct{}{}
-		// TODO: Add rating procedure, editing origin prio
 		prio := int64(len(sign))
+		prio += fuzzer.coverDiffMap.CountDiffPrio(cover)
 		if sign.Empty() {
 			prio = 1
 		}
@@ -603,6 +614,14 @@ func (fuzzer *Fuzzer) checkNewCallSignal(p *prog.Prog, info *ipc.CallInfo, call 
 	fuzzer.signalMu.Unlock()
 	fuzzer.signalMu.RLock()
 	return true
+}
+
+func (fuzzer *Fuzzer) countDiffPrio(cover []uint32) (prio int64) {
+	for _, pc := range cover {
+		log.Logf(0, "cover: %x", pc)
+	}
+	panic("Debug countDiffPrio")
+	return prio
 }
 
 func signalPrio(p *prog.Prog, info *ipc.CallInfo, call int) (prio uint8) {
