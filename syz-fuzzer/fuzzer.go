@@ -541,7 +541,9 @@ func (fuzzer *Fuzzer) addInputToCorpus(p *prog.Prog, sign signal.Signal, sig has
 		fuzzer.corpus = append(fuzzer.corpus, p)
 		fuzzer.corpusHashes[sig] = struct{}{}
 		prio := int64(len(sign))
-		prio += fuzzer.coverDiffMap.CountDiffPrio(cover)
+		prio_extra := fuzzer.coverDiffMap.CountDiffPrio(cover)
+		prio += prio_extra
+		log.Logf(0, "add new input to corpus: %v, signals: %v, cover: %v, prio_extra: %v", sig.String(), len(sign), len(cover), prio_extra)
 		if sign.Empty() {
 			prio = 1
 		}
@@ -614,14 +616,6 @@ func (fuzzer *Fuzzer) checkNewCallSignal(p *prog.Prog, info *ipc.CallInfo, call 
 	fuzzer.signalMu.Unlock()
 	fuzzer.signalMu.RLock()
 	return true
-}
-
-func (fuzzer *Fuzzer) countDiffPrio(cover []uint32) (prio int64) {
-	for _, pc := range cover {
-		log.Logf(0, "cover: %x", pc)
-	}
-	panic("Debug countDiffPrio")
-	return prio
 }
 
 func signalPrio(p *prog.Prog, info *ipc.CallInfo, call int) (prio uint8) {

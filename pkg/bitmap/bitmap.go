@@ -27,11 +27,9 @@ func (b *Bitmap) SetRegion(start uint32, end uint32) {
 		return
 	}
 	if start < b.offset {
-		panic("Error start < offset")
 		start = b.offset
 	}
 	if end >= b.offset+b.size {
-		panic("Error end > offset+size")
 		end = b.offset + b.size
 	}
 
