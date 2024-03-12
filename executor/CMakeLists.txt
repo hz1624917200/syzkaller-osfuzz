@@ -10,6 +10,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DGOOS_linux=1 -DGOARCH_amd64=1 -DHOSTGO
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -m64 -pthread -Wall -Wparentheses -Wunused-const-variable -Wframe-larger-than=16384 -Wno-stringop-overflow -Wno-array-bounds -Wno-format-overflow -Wno-unused-but-set-variable -Wno-unused-command-line-argument")
 
 add_executable(syz-executor executor.cc)
-target_link_libraries(syz-executor PRIVATE /usr/local/lib/libxdc.a /usr/local/lib64/libcapstone.a)
+if (NOT EXISTS /usr/local/lib/libxdc.a)
+	message(WARNING "libxdc.a not found, Intel PT feature will be disabled")
+elseif (NOT EXISTS /usr/local/lib64/libcapstone.a)
+	message(WARNING "libcapstone.a not found, Intel PT feature will be disabled")
+else()
+	target_link_libraries(syz-executor PRIVATE /usr/local/lib/libxdc.a /usr/local/lib64/libcapstone.a)
+endif()
 
 install(TARGETS syz-executor DESTINATION /root/syz-executor-test)

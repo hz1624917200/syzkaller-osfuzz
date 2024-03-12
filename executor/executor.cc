@@ -76,8 +76,10 @@ const int kCoverOptimizedCount = 12; // the number of kcov instances to be opene
 const int kCoverOptimizedPreMmap = 3; // this many will be mmapped inside main(), others - when needed.
 const int kCoverDefaultCount = 6; // otherwise we only init kcov instances inside main()
 
+#if SYZ_USE_IPT
 // Intel PT instance count
 const int iptDefaultCount = 6;
+#endif
 
 // Logical error (e.g. invalid input program), use as an assert() alternative.
 // If such error happens 10+ times in a row, it will be detected as a bug by syz-fuzzer.
@@ -286,7 +288,9 @@ struct thread_t {
 	uint32 reserrno;
 	bool fault_injected;
 	cover_t cov;
+#if SYZ_USE_IPT
 	ipt_decoder_t decoder;
+#endif
 	bool soft_fail_state;
 };
 
@@ -498,6 +502,7 @@ int main(int argc, char** argv)
 #else
 	receive_execute();
 #endif
+#if SYZ_USE_IPT
 	if (flag_coverage_intelpt) { // flag_coverage_intelpt enabled
 		// We can't open coverage now because we don't know the pid of the target process yet.
 		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
@@ -510,7 +515,9 @@ int main(int argc, char** argv)
 		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
 
 		thread_count = iptDefaultCount;
-	} else if (flag_coverage_kcov) { // use kcov as coverage
+	} else 
+#endif
+	if (flag_coverage_kcov) { // use kcov as coverage
 		thread_count = kCoverDefaultCount;
 		int mmap_count = thread_count;
 		if (flag_delay_kcov_mmap) {
@@ -811,11 +818,14 @@ void execute_one()
 			cover_enable(&threads[0].cov, flag_comparisons, false);
 		if (flag_extra_coverage)
 			cover_reset(&extra_cov);
-	} else if (cover_collection_required_ipt() && !flag_threaded) {
+	}
+#if SYZ_USE_IPT
+	else if (cover_collection_required_ipt() && !flag_threaded) {
 		cover_open_ipt(&threads[0].cov);
 		threads[0].decoder.init();
 		// cover_enable_ipt(&threads[0].cov);		// no need to enable now, ipt will be enabled before syscall
 	}
+#endif
 
 	int call_index = 0;
 	uint64 prog_extra_timeout = 0;
@@ -1106,6 +1116,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 	}
 }
 
+#if SYZ_USE_IPT
 // TODO: debug var, delete this later
 int dump_index = 0;
 
@@ -1165,6 +1176,7 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	cover_reset_ipt(cov);
 	decoder->reset_signal();
 }
+#endif
 #endif // if SYZ_EXECUTOR_USES_SHMEM
 
 void handle_completion(thread_t* th)
@@ -1273,12 +1285,15 @@ void write_call_output(thread_t* th, bool finished)
 			write_coverage_signal<uint64>(&th->cov, signal_count_pos, cover_count_pos);
 		else
 			write_coverage_signal<uint32>(&th->cov, signal_count_pos, cover_count_pos);
-	} else if (cover_collection_required_ipt()) {
+	} 
+#if SYZ_USE_IPT
+	else if (cover_collection_required_ipt()) {
 		if (is_kernel_64_bit)
 			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos);
 		else
 			write_coverage_ipt<uint32>(&th->decoder, &th->cov, signal_count_pos);
 	}
+#endif
 	debug("out #%u: index=%u num=%u errno=%d finished=%d blocked=%d sig=%u cover=%u comps=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, finished, blocked,
 		      *signal_count_pos, *cover_count_pos, *comps_count_pos);
@@ -1364,10 +1379,12 @@ void* worker_thread(void* arg)
 	current_thread = th;
 	if (cover_collection_required_kcov())
 		cover_enable(&th->cov, flag_comparisons, false);
+#if SYZ_USE_IPT
 	if (cover_collection_required_ipt()) {
 		cover_open_ipt(&th->cov);
 		th->decoder.init();
 	}
+#endif
 	for (;;) {
 		// int fd = open("/dev/kasan0", O_RDWR);
 		// bokasan_pid_info_t pid_info;
@@ -1406,9 +1423,11 @@ void execute_call(thread_t* th)
 
 	if (flag_coverage_kcov)
 		cover_reset(&th->cov);
+#if SYZ_USE_IPT
 	else if (cover_collection_required_ipt()) {
 		cover_enable_ipt(&th->cov);
 	}
+#endif
 	// For pseudo-syscalls and user-space functions NONFAILING can abort before assigning to th->res.
 	// Arrange for res = -1 and errno = EFAULT result for such case.
 	th->res = -1;
@@ -1425,10 +1444,13 @@ void execute_call(thread_t* th)
 		cover_collect(&th->cov);
 		if (th->cov.size >= kCoverSize)
 			failmsg("too much cover", "thr=%d, cov=%u", th->id, th->cov.size);
-	} else if (cover_collection_required_ipt()) {
+	}
+#if SYZ_USE_IPT
+	else if (cover_collection_required_ipt()) {
 		cover_disable_ipt(&th->cov);
 		// reset ipt after write coverage output
 	}
+#endif
 	th->fault_injected = false;
 
 	if (th->call_props.fail_nth > 0)

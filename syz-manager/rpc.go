@@ -313,7 +313,7 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 		serv.corpusSignal.Merge(inputSignal)
 		serv.stats.corpusSignal.set(serv.corpusSignal.Len())
 
-		a.Input.Cover = nil // Don't send coverage back to all fuzzers.
+		// a.Input.Cover = nil // Don't send coverage back to all fuzzers.
 		a.Input.RawCover = nil
 		for _, other := range serv.fuzzers {
 			if other == f || other.rotated {

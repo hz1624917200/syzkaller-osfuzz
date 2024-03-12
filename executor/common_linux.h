@@ -3877,8 +3877,10 @@ static void sandbox_common()
 #if SYZ_EXECUTOR
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20) +
 					(kMaxThreads * kCoverSize + kExtraCoverSize) * sizeof(void*);
+#if SYZ_USE_IPT
 	if (flag_coverage_intelpt)
 		rlim.rlim_cur += SYZIPT_MMAP_PAGES * 4096ull;
+#endif
 #else
 	rlim.rlim_cur = rlim.rlim_max = (200 << 20);
 #endif
