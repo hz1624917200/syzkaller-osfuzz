@@ -265,6 +265,29 @@ static long perf_event_open(
 }
 #endif
 
+static int bokasan_open() {
+	int fd = open("/dev/bokasan0", O_RDWR);
+	if (fd == -1)
+		fail("open /dev/bokasan0 failed, bokasan not enabled");
+	return fd;
+}
+
+static int bokasan_register(int fd) {
+	bokasan_pid_info_t pid_info;
+	pid_info.pid = 0;		// current tid
+	if (ioctl(fd, BOKASAN_SET_PID, &pid_info) < 0)
+		fail("ioctl(BOKASAN_GET_PID) failed");
+	return fd;
+}
+
+static int bokasan_unregister(int fd) {
+	bokasan_pid_info_t pid_info;
+	pid_info.pid = 0;		// current tid
+	if (ioctl(fd, BOKASAN_REMOVE_PID, &pid_info) < 0)
+		fail("ioctl(BOKASAN_REMOVE_PID) failed");
+	return fd;
+}
+
 // One does not simply exit.
 // _exit can in fact fail.
 // syzkaller did manage to generate a seccomp filter that prohibits exit_group syscall.

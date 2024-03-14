@@ -816,6 +816,7 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 		Cover:     mgr.cfg.Cover,
 		CoverIpt:  mgr.cfg.CoverIpt,
 		CoverDiff: mgr.cfg.CoverDiff,
+		BoKASAN:   mgr.cfg.BoKASAN,
 		Debug:     *flagDebug,
 		Test:      false,
 		Runtest:   false,

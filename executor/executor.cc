@@ -165,6 +165,7 @@ static bool flag_debug;
 static bool flag_coverage_kcov;
 static bool flag_coverage_intelpt; // is exclusive with flag_coverage_kcov
 static bool flag_coverage_intelpt_dump;
+static bool flag_bokasan;
 static bool flag_sandbox_none;
 static bool flag_sandbox_setuid;
 static bool flag_sandbox_namespace;
@@ -291,6 +292,7 @@ struct thread_t {
 #if SYZ_USE_IPT
 	ipt_decoder_t decoder;
 #endif
+	int bokasan_fd;
 	bool soft_fail_state;
 };
 
@@ -663,6 +665,7 @@ void parse_env_flags(uint64 flags)
 	flag_delay_kcov_mmap = flags & (1 << 14);
 	flag_nic_vf = flags & (1 << 15);
 	flag_coverage_intelpt = flags & (1 << 16);
+	flag_bokasan = flags & (1 << 17);	// TODO: pending handle
 	debug("parsed env flags: debug=%d kcov=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d intelpt=%d\n",
 	      flag_debug, flag_coverage_kcov, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
@@ -1385,13 +1388,10 @@ void* worker_thread(void* arg)
 		th->decoder.init();
 	}
 #endif
+	if (flag_bokasan) {
+		th->bokasan_fd = bokasan_open();
+	}
 	for (;;) {
-		// int fd = open("/dev/kasan0", O_RDWR);
-		// bokasan_pid_info_t pid_info;
-		// pid_info.pid = 0;		// current tid
-		// if (ioctl(fd, BOKASAN_SET_PID, &pid_info) < 0)
-		// 	fail("ioctl(BOKASAN_GET_PID_INFO) failed");
-
 		event_wait(&th->ready);
 		event_reset(&th->ready);
 		execute_call(th);
@@ -1419,6 +1419,11 @@ void execute_call(thread_t* th)
 			fail("both fault injection and rerun are enabled for the same call");
 		fail_fd = inject_fault(th->call_props.fail_nth);
 		th->soft_fail_state = true;
+	}
+
+	// enable sanitizer only on syscalls
+	if (flag_bokasan) {
+		bokasan_register(th->bokasan_fd);
 	}
 
 	if (flag_coverage_kcov)
@@ -1451,6 +1456,9 @@ void execute_call(thread_t* th)
 		// reset ipt after write coverage output
 	}
 #endif
+	if (flag_bokasan) {
+		bokasan_unregister(th->bokasan_fd);
+	}
 	th->fault_injected = false;
 
 	if (th->call_props.fail_nth > 0)

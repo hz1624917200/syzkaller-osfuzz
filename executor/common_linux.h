@@ -13,12 +13,13 @@ const int kExtraCoverSize = 256 << 10;
 struct cover_t;
 static void cover_reset(cover_t* cov);
 
-// #define BOKASAN_IOCTL_MAGIC 'K'
-// #define BOKASAN_SET_PID 	_IO(BOKASAN_IOCTL_MAGIC, 0)
-// #define BOKASAN_REMOVE_PID 	_IO(BOKASAN_IOCTL_MAGIC, 1)
-// typedef struct {
-// 	pid_t pid;
-// } __attribute__ ((packed)) bokasan_pid_info_t;
+// TODO: add compile flag on BoKASAN
+#define BOKASAN_IOCTL_MAGIC 'K'
+#define BOKASAN_SET_PID 	_IO(BOKASAN_IOCTL_MAGIC, 0)
+#define BOKASAN_REMOVE_PID 	_IO(BOKASAN_IOCTL_MAGIC, 1)
+typedef struct {
+	pid_t pid;
+} __attribute__ ((packed)) bokasan_pid_info_t;
 #endif
 
 #if SYZ_EXECUTOR || SYZ_THREADED

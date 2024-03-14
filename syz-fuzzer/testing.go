@@ -145,6 +145,10 @@ func checkMachine(args *checkArgs) (*rpctype.CheckArgs, error) {
 		args.ipcConfig.Flags&ipc.FlagIpt != 0 {
 		return nil, fmt.Errorf("intel PT coverage is not supported (%v)", feat.Reason)
 	}
+	if feat := features[host.FeatureBoKASAN]; !feat.Enabled &&
+		args.ipcConfig.Flags&ipc.FlagBoKASAN != 0 {
+		return nil, fmt.Errorf("BoKASAN is not supported (%v)", feat.Reason)
+	}
 	if feat := features[host.FeatureSandboxSetuid]; !feat.Enabled &&
 		args.ipcConfig.Flags&ipc.FlagSandboxSetuid != 0 {
 		return nil, fmt.Errorf("sandbox=setuid is not supported (%v)", feat.Reason)

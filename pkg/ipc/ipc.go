@@ -45,6 +45,7 @@ const (
 	FlagDelayKcovMmap                            // manage kcov memory in an optimized way
 	FlagEnableNicVF                              // setup NIC VF device
 	FlagIpt                                      // use Intel PT as signal source
+	FlagBoKASAN                                  // use Binary only KASAN for sanitizer
 )
 
 // Per-exec flags for ExecOpts.Flags.

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -156,26 +157,33 @@ func (ctx *Context) Run() error {
 func (ctx *Context) generatePrograms(progs chan *RunRequest) error {
 	log.Logf(0, "Generating programs...")
 	// cover := []bool{false}
-	// TODO: simplified for debugging
-	cover := []bool{false}
-	cover_ipt := []bool{false}
+	cover := []bool{}
+	cover_ipt := []bool{}
+	bokasan := []bool{}
 	if ctx.Features[host.FeatureCoverage].Enabled {
 		cover = append(cover, true)
 	}
 	if ctx.Features[host.FeatureCoverageIpt].Enabled {
 		cover_ipt = append(cover_ipt, true)
 	}
+	if ctx.Features[host.FeatureBoKASAN].Enabled {
+		bokasan = append(bokasan, true)
+	}
 	var sandboxes []string
-	sandboxes = append(sandboxes, "none")
-	// for sandbox := range ctx.EnabledCalls {
-	// 	sandboxes = append(sandboxes, sandbox)
-	// }
-	// sort.Strings(sandboxes)
+	// TODO: currently we only support "none" sandbox when cover_ipt is enabled
+	if ctx.Features[host.FeatureCoverageIpt].Enabled {
+		sandboxes = append(sandboxes, "none")
+	} else {
+		for sandbox := range ctx.EnabledCalls {
+			sandboxes = append(sandboxes, sandbox)
+		}
+		sort.Strings(sandboxes)
+	}
 	files, err := progFileList(ctx.Dir, ctx.Tests)
 	if err != nil {
 		return err
 	}
-	log.Logf(0, "generating file: sandboxes: %v; cover: %v; cover_ipt: %v; file: %v", sandboxes, cover, cover_ipt, files)
+	log.Logf(0, "generating file: sandboxes: %v; cover: %v; cover_ipt: %v; file: %v", sandboxes, cover, cover_ipt, bokasan, files)
 	for _, file := range files {
 		if err := ctx.generateFile(progs, sandboxes, cover, cover_ipt, file); err != nil {
 			return err

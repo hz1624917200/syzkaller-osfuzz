@@ -148,6 +148,9 @@ type Config struct {
 	// Guiding with coverage of diff basic blocks
 	CoverDiff bool `json:"cover_diff"`
 
+	// Use BoKASAN as the sanitizer in Binary-only kernel
+	BoKASAN bool `json:"bokasan"`
+
 	// For each prog in the corpus, remember the raw array of PCs obtained from the kernel.
 	// It can be useful for debugging syzkaller descriptions and syzkaller itself.
 	// Disabled by default as it slows down fuzzing.

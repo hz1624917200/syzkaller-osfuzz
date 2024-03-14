@@ -29,6 +29,7 @@ const (
 	FeatureNetInjection
 	FeatureNetDevices
 	FeatureKCSAN
+	FeatureBoKASAN
 	FeatureDevlinkPCI
 	FeatureNicVF
 	FeatureUSBEmulation
@@ -74,6 +75,7 @@ func Check(target *prog.Target) (*Features, error) {
 		FeatureNetInjection:     {Name: "net packet injection", Reason: unsupported},
 		FeatureNetDevices:       {Name: "net device setup", Reason: unsupported},
 		FeatureKCSAN:            {Name: "concurrency sanitizer", Reason: unsupported},
+		FeatureBoKASAN:          {Name: "binary only kasan", Reason: unsupported},
 		FeatureDevlinkPCI:       {Name: "devlink PCI setup", Reason: unsupported},
 		FeatureNicVF:            {Name: "NIC VF setup", Reason: unsupported},
 		FeatureUSBEmulation:     {Name: "USB emulation", Reason: unsupported},

@@ -185,6 +185,7 @@ func (mgr *Manager) boot(name string, index int) (*report.Report, error) {
 		Cover:     mgr.cfg.Cover,
 		CoverIpt:  mgr.cfg.CoverIpt,
 		CoverDiff: mgr.cfg.CoverDiff,
+		BoKASAN:   mgr.cfg.BoKASAN,
 		Debug:     mgr.debug,
 		Test:      false,
 		Runtest:   true,

@@ -41,6 +41,7 @@ func init() {
 	checkFeature[Feature802154Emulation] = check802154Emulation
 	checkFeature[FeatureSwap] = checkSwap
 	checkFeature[FeatureCoverageIpt] = checkCoverageIpt
+	checkFeature[FeatureBoKASAN] = checkBoKASAN
 }
 
 func checkCoverage() string {
@@ -266,6 +267,14 @@ func checkKCSAN() string {
 		return err.Error()
 	}
 	return ""
+}
+
+func checkBoKASAN() string {
+	if err := osutil.IsAccessible("/dev/bokasan0"); err != nil {
+		return err.Error()
+	}
+	return ""
+
 }
 
 func checkDevlinkPCI() string {
