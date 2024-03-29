@@ -67,6 +67,8 @@ const int kInPipeFd = kMaxFd - 1; // remapped from stdin
 const int kOutPipeFd = kMaxFd - 2; // remapped from stdout
 const int kCoverFd = kOutPipeFd - kMaxThreads;
 const int kExtraCoverFd = kCoverFd - 1;
+const int kBoKASANFd = kExtraCoverFd - kMaxThreads;
+const int kIptFd = kBoKASANFd - kMaxThreads;
 const int kMaxArgs = 9;
 const int kCoverSize = 256 << 10;
 const int kFailStatus = 67;
@@ -515,8 +517,11 @@ int main(int argc, char** argv)
 		if (ipt_driver.driver_fd < 0)
 			fail("open /proc/syzipt failed");
 		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
-
 		thread_count = iptDefaultCount;
+		for (int i = 0; i < thread_count; i++) {
+			threads[i].cov.fd = kIptFd + i;
+			threads[i].bokasan_fd = kBoKASANFd + i;
+		}
 	} else 
 #endif
 	if (flag_coverage_kcov) { // use kcov as coverage
@@ -531,6 +536,7 @@ int main(int argc, char** argv)
 		// initialize kcov coverage instances
 		for (int i = 0; i < thread_count; i++) {
 			threads[i].cov.fd = kCoverFd + i;
+			threads[i].bokasan_fd = kBoKASANFd + i;
 			cover_open(&threads[i].cov, false);
 			if (i < mmap_count) {
 				// Pre-mmap coverage collection for some threads. This should be enough for almost
@@ -1389,7 +1395,7 @@ void* worker_thread(void* arg)
 	}
 #endif
 	if (flag_bokasan) {
-		th->bokasan_fd = bokasan_open();
+		bokasan_open(th->bokasan_fd);
 	}
 	for (;;) {
 		event_wait(&th->ready);

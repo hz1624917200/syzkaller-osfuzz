@@ -156,10 +156,11 @@ static void cover_reset(cover_t* cov)
 // can only open intel PT perf event after pthread create
 static void cover_open_ipt(cover_t* cov)
 {
-	cov->fd = perf_event_open(&pe, 0, -1, -1, 0); // pid = 0 means current thread
-	if (cov->fd < 0)
+	int perf_fd = perf_event_open(&pe, 0, -1, -1, 0); // pid = 0 means current thread
+	if (perf_fd < 0)
 		fail("perf_event_open failed");
-
+	if (dup2(perf_fd, cov->fd) < 0)
+		fail("dup2 perf_fd failed");
 	// mmap for perf_event
 	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->fd, 0)) == MAP_FAILED)
 		fail("mmap perf_event failed");
@@ -265,18 +266,19 @@ static long perf_event_open(
 }
 #endif
 
-static int bokasan_open() {
-	int fd = open("/dev/bokasan0", O_RDWR);
-	if (fd == -1)
+static void bokasan_open(int fd) {
+	int fd_temp = open("/dev/bokasan0", O_RDWR);
+	if (fd_temp == -1)
 		fail("open /dev/bokasan0 failed, bokasan not enabled");
-	return fd;
+	if (dup2(fd_temp, fd) < 0)
+		fail("dup2 bokasan fd failed");
 }
 
 static int bokasan_register(int fd) {
 	bokasan_pid_info_t pid_info;
 	pid_info.pid = 0;		// current tid
 	if (ioctl(fd, BOKASAN_SET_PID, &pid_info) < 0)
-		fail("ioctl(BOKASAN_GET_PID) failed");
+		fail("ioctl(BOKASAN_SET_PID) failed");
 	return fd;
 }
 
