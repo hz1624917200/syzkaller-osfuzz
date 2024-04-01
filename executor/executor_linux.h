@@ -161,6 +161,7 @@ static void cover_open_ipt(cover_t* cov)
 		fail("perf_event_open failed");
 	if (dup2(perf_fd, cov->fd) < 0)
 		fail("dup2 perf_fd failed");
+	close(perf_fd);
 	// mmap for perf_event
 	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->fd, 0)) == MAP_FAILED)
 		fail("mmap perf_event failed");
@@ -272,6 +273,7 @@ static void bokasan_open(int fd) {
 		fail("open /dev/bokasan0 failed, bokasan not enabled");
 	if (dup2(fd_temp, fd) < 0)
 		fail("dup2 bokasan fd failed");
+	close(fd_temp);
 }
 
 static int bokasan_register(int fd) {
