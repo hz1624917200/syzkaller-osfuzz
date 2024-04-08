@@ -254,9 +254,8 @@ struct cover_t {
 	uint32 size;
 	uint32 mmap_alloc_size;
 	char* data;
-	char* data_end; // end of mmapped data region
-	// if cover_intelpt enabled, data -> perfMmapAux, data_event -> perfMmapBuf
-	uint8_t* data_perf_event; // start of perf event data region
+	char* data_end;
+	// TODO: fix: if cover_intelpt enabled, data -> perfMmapAux, data_event -> perfMmapBuf
 
 	// Note: On everything but darwin the first value in data is the count of
 	// recorded PCs, followed by the PCs. We therefore set data_offset to the
@@ -271,6 +270,11 @@ struct cover_t {
 	// offset (VM_MIN_KERNEL_ADDRESS for AMD64) and then truncates the result to
 	// uint32_t. We get this from the 'offset' member in ksancov_trace.
 	intptr_t pc_offset;
+#if SYZ_USE_IPT
+	int ipt_fd;
+	uint8_t* data_perf_event; // start of perf event data region
+	uint8_t* data_perf_aux; // start of perf aux data region
+#endif
 };
 
 struct thread_t {
@@ -506,24 +510,7 @@ int main(int argc, char** argv)
 #else
 	receive_execute();
 #endif
-#if SYZ_USE_IPT
-	if (flag_coverage_intelpt) { // flag_coverage_intelpt enabled
-		// We can't open coverage now because we don't know the pid of the target process yet.
-		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
 
-		// open global memory reader
-		flag_extra_coverage = false;
-		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
-		if (ipt_driver.driver_fd < 0)
-			fail("open /proc/syzipt failed");
-		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
-		thread_count = iptDefaultCount;
-		for (int i = 0; i < thread_count; i++) {
-			threads[i].cov.fd = kIptFd + i;
-			threads[i].bokasan_fd = kBoKASANFd + i;
-		}
-	} else 
-#endif
 	if (flag_coverage_kcov) { // use kcov as coverage
 		thread_count = kCoverDefaultCount;
 		int mmap_count = thread_count;
@@ -564,6 +551,26 @@ int main(int argc, char** argv)
 		filename[sizeof(filename) - 1] = '\0';
 		init_coverage_filter(filename);
 	}
+
+#if SYZ_USE_IPT
+	if (flag_coverage_intelpt) { // flag_coverage_intelpt enabled
+		// We can't open coverage now because we don't know the pid of the target process yet.
+		// initialization of intel PT coverage will be done in thread_create(), after pthread_create()
+
+		// open global memory reader
+		flag_extra_coverage = false;
+		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
+		if (ipt_driver.driver_fd < 0)
+			fail("open /proc/syzipt failed");
+		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
+		if (!flag_coverage_kcov)
+			thread_count = iptDefaultCount;
+		for (int i = 0; i < thread_count; i++) {
+			threads[i].cov.ipt_fd = kIptFd + i;
+			threads[i].bokasan_fd = kBoKASANFd + i;
+		}
+	}
+#endif
 
 	int status = 0;
 	if (flag_sandbox_none)
@@ -672,11 +679,11 @@ void parse_env_flags(uint64 flags)
 	flag_nic_vf = flags & (1 << 15);
 	flag_coverage_intelpt = flags & (1 << 16);
 	flag_bokasan = flags & (1 << 17);	// TODO: pending handle
-	debug("parsed env flags: debug=%d kcov=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d intelpt=%d\n",
-	      flag_debug, flag_coverage_kcov, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
+	debug("parsed env flags: debug=%d kcov=%d intelpt=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d\n",
+	      flag_debug, flag_coverage_kcov, flag_coverage_intelpt, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
 	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
-	      flag_nic_vf, flag_coverage_intelpt);
+	      flag_nic_vf, );
 	if (flag_coverage_kcov && flag_coverage_intelpt)
 		fail("kcov and intelpt coverage are exclusive");
 }
@@ -733,12 +740,12 @@ void receive_execute()
 	      current_time_ms() - start_time_ms, procid, flag_threaded, flag_collect_cover,
 	      flag_comparisons, flag_dedup_cover, flag_collect_signal, syscall_timeout_ms,
 	      program_timeout_ms, slowdown_scale, req.prog_size, flag_coverage_filter);
-	// suppress invalid flags
-	if (flag_coverage_intelpt && (flag_collect_cover || flag_comparisons)) {
-		debug("Warning: intel PT coverage is enabled, disable kcov coverage options\n");
-		flag_collect_cover = false;
-		flag_comparisons = false;
-	}
+	// TODO: remove this: suppress invalid flags
+	// if (flag_coverage_intelpt && (flag_collect_cover || flag_comparisons)) {
+	// 	debug("Warning: intel PT coverage is enabled, disable kcov coverage options\n");
+	// 	flag_collect_cover = false;
+	// 	flag_comparisons = false;
+	// }
 	if (syscall_timeout_ms == 0 || program_timeout_ms <= syscall_timeout_ms || slowdown_scale == 0)
 		failmsg("bad timeouts", "syscall=%llu, program=%llu, scale=%llu",
 			syscall_timeout_ms, program_timeout_ms, slowdown_scale);
@@ -769,7 +776,7 @@ bool cover_collection_required_kcov()
 
 bool cover_collection_required_ipt()
 {
-	return flag_coverage_intelpt && (flag_collect_signal);
+	return flag_coverage_intelpt && (flag_collect_signal || flag_collect_cover);
 }
 
 #if GOOS_akaros
@@ -829,7 +836,7 @@ void execute_one()
 			cover_reset(&extra_cov);
 	}
 #if SYZ_USE_IPT
-	else if (cover_collection_required_ipt() && !flag_threaded) {
+	if (cover_collection_required_ipt() && !flag_threaded) {
 		cover_open_ipt(&threads[0].cov);
 		threads[0].decoder.init();
 		// cover_enable_ipt(&threads[0].cov);		// no need to enable now, ipt will be enabled before syscall
@@ -1080,7 +1087,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 	// Write out feedback signals.
 	// Currently it is code edges computed as xor of two subsequent basic block PCs.
 	cover_data_t* cover_data = (cover_data_t*)(cov->data + cov->data_offset);
-	if (flag_collect_signal) {
+	if (flag_collect_signal && !flag_coverage_intelpt) {		// Intel PT coverage outputs signals in default
 		uint32 nsig = 0;
 		cover_data_t prev_pc = 0;
 		bool prev_filter = true;
@@ -1130,8 +1137,9 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 int dump_index = 0;
 
 template <typename cover_data_t>
-void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos)
+void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
+	// TODO: add support for kcov coverage output
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
 	uint64 aux_head = header->aux_head;
 	uint64 aux_tail = header->aux_tail;
@@ -1298,9 +1306,9 @@ void write_call_output(thread_t* th, bool finished)
 #if SYZ_USE_IPT
 	else if (cover_collection_required_ipt()) {
 		if (is_kernel_64_bit)
-			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos);
+			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos, cover_count_pos);
 		else
-			write_coverage_ipt<uint32>(&th->decoder, &th->cov, signal_count_pos);
+			write_coverage_ipt<uint32>(&th->decoder, &th->cov, signal_count_pos, cover_count_pos);
 	}
 #endif
 	debug("out #%u: index=%u num=%u errno=%d finished=%d blocked=%d sig=%u cover=%u comps=%u\n",
@@ -1435,7 +1443,7 @@ void execute_call(thread_t* th)
 	if (flag_coverage_kcov)
 		cover_reset(&th->cov);
 #if SYZ_USE_IPT
-	else if (cover_collection_required_ipt()) {
+	if (cover_collection_required_ipt()) {
 		cover_enable_ipt(&th->cov);
 	}
 #endif
@@ -1457,7 +1465,7 @@ void execute_call(thread_t* th)
 			failmsg("too much cover", "thr=%d, cov=%u", th->id, th->cov.size);
 	}
 #if SYZ_USE_IPT
-	else if (cover_collection_required_ipt()) {
+	if (cover_collection_required_ipt()) {
 		cover_disable_ipt(&th->cov);
 		// reset ipt after write coverage output
 	}

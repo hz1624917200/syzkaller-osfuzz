@@ -5,7 +5,6 @@ package ipcconfig
 
 import (
 	"flag"
-	"fmt"
 
 	"github.com/google/syzkaller/pkg/ipc"
 	"github.com/google/syzkaller/prog"
@@ -34,9 +33,6 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 		c.Flags |= ipc.FlagKcov
 	}
 	if *flagCoverIpt {
-		if *flagCoverKcov {
-			return nil, nil, fmt.Errorf("can't use -cover_ipt with -cover")
-		}
 		c.Flags |= ipc.FlagIpt
 	}
 	if *flagBoKASAN {

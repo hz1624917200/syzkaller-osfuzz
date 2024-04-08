@@ -159,11 +159,11 @@ static void cover_open_ipt(cover_t* cov)
 	int perf_fd = perf_event_open(&pe, 0, -1, -1, 0); // pid = 0 means current thread
 	if (perf_fd < 0)
 		fail("perf_event_open failed");
-	if (dup2(perf_fd, cov->fd) < 0)
+	if (dup2(perf_fd, cov->ipt_fd) < 0)
 		fail("dup2 perf_fd failed");
 	close(perf_fd);
 	// mmap for perf_event
-	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->fd, 0)) == MAP_FAILED)
+	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->ipt_fd, 0)) == MAP_FAILED)
 		fail("mmap perf_event failed");
 
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
@@ -171,19 +171,19 @@ static void cover_open_ipt(cover_t* cov)
 	debug("perf_event mmap page size: %llu\n", header->data_size);
 	header->aux_offset = header->data_offset + header->data_size;
 	header->aux_size = _PERF_AUX_SIZE;
-	if ((cov->data = (char*)mmap(NULL, header->aux_size, PROT_READ, MAP_SHARED, cov->fd, header->aux_offset)) == MAP_FAILED)
+	if ((cov->data_perf_aux = (char*)mmap(NULL, header->aux_size, PROT_READ, MAP_SHARED, cov->ipt_fd, header->aux_offset)) == MAP_FAILED)
 		fail("mmap perf_event aux failed"); // TODO: add error handling
 	debug("intel PT cover open success\n");
 }
 
 static void cover_enable_ipt(cover_t* cov)
 {
-	ioctl(cov->fd, PERF_EVENT_IOC_ENABLE, 0);
+	ioctl(cov->ipt_fd, PERF_EVENT_IOC_ENABLE, 0);
 }
 
 static void cover_disable_ipt(cover_t* cov)
 {
-	ioctl(cov->fd, PERF_EVENT_IOC_DISABLE, 0);
+	ioctl(cov->ipt_fd, PERF_EVENT_IOC_DISABLE, 0);
 }
 
 static void cover_reset_ipt(cover_t* cov)
@@ -194,7 +194,14 @@ static void cover_reset_ipt(cover_t* cov)
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
 	ATOMIC_SET(header->aux_tail, ATOMIC_GET(header->aux_head));
 
-	ioctl(cov->fd, PERF_EVENT_IOC_RESET, 0);
+	ioctl(cov->ipt_fd, PERF_EVENT_IOC_RESET, 0);
+}
+
+static long perf_event_open(
+    struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags)
+{
+	return syscall(__NR_perf_event_open, hw_event, (uintptr_t)pid, (uintptr_t)cpu,
+		       (uintptr_t)group_fd, (uintptr_t)flags);
 }
 #endif
 
@@ -257,15 +264,6 @@ static bool detect_gvisor()
 	// This is a first line of gvisor dmesg.
 	return strstr(buf, "Starting gVisor");
 }
-
-#if SYZ_USE_IPT
-static long perf_event_open(
-    struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags)
-{
-	return syscall(__NR_perf_event_open, hw_event, (uintptr_t)pid, (uintptr_t)cpu,
-		       (uintptr_t)group_fd, (uintptr_t)flags);
-}
-#endif
 
 static void bokasan_open(int fd) {
 	int fd_temp = open("/dev/bokasan0", O_RDWR);
