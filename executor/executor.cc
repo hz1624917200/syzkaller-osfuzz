@@ -273,7 +273,7 @@ struct cover_t {
 #if SYZ_USE_IPT
 	int ipt_fd;
 	uint8_t* data_perf_event; // start of perf event data region
-	uint8_t* data_perf_aux; // start of perf aux data region
+	char* data_perf_aux; // start of perf aux data region
 #endif
 };
 
