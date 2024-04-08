@@ -683,7 +683,7 @@ void parse_env_flags(uint64 flags)
 	      flag_debug, flag_coverage_kcov, flag_coverage_intelpt, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
 	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
-	      flag_nic_vf, );
+	      flag_nic_vf);
 	if (flag_coverage_kcov && flag_coverage_intelpt)
 		fail("kcov and intelpt coverage are exclusive");
 }
