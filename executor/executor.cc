@@ -104,6 +104,7 @@ static NORETURN void doexit_thread(int status);
 // This function does not add \n at the end of msg as opposed to the previous functions.
 static PRINTF(1, 2) void debug(const char* msg, ...);
 void debug_dump_data(const char* data, int length);
+void printStackTrace(void);
 
 #if 0
 #define debug_verbose(...) debug(__VA_ARGS__)
@@ -158,7 +159,7 @@ static uint32* write_output(uint32 v);
 static uint32* write_output_64(uint64 v);
 static void write_completed(uint32 completed);
 static uint32 hash(uint32 a);
-static bool dedup(uint32 sig);
+static bool dedup(uint32 sig, uint32* dedup_table);
 #endif // if SYZ_EXECUTOR_USES_SHMEM
 
 uint64 start_time_ms = 0;
@@ -232,6 +233,10 @@ uint32 completed;
 bool is_kernel_64_bit = true;
 
 static char* input_data;
+
+const uint32 dedup_table_size = 8 << 10;
+uint32 dedup_table_kcov[dedup_table_size];
+uint32 dedup_table_ipt[dedup_table_size];
 
 // Checksum kinds.
 static const uint64 arg_csum_inet = 0;
@@ -684,8 +689,6 @@ void parse_env_flags(uint64 flags)
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
 	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
 	      flag_nic_vf);
-	if (flag_coverage_kcov && flag_coverage_intelpt)
-		fail("kcov and intelpt coverage are exclusive");
 }
 
 #if SYZ_EXECUTOR_USES_FORK_SERVER
@@ -1105,7 +1108,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 			bool ignore = !filter && !prev_filter;
 			prev_pc = pc;
 			prev_filter = filter;
-			if (ignore || dedup(sig))
+			if (ignore || dedup(sig, dedup_table_kcov))
 				continue;
 			write_output(sig);
 			nsig++;
@@ -1139,7 +1142,7 @@ int dump_index = 0;
 template <typename cover_data_t>
 void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
-	// TODO: add support for kcov coverage output
+	// TODO: currently use kcov as coverage source
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
 	uint64 aux_head = header->aux_head;
 	uint64 aux_tail = header->aux_tail;
@@ -1154,13 +1157,13 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	uint64 aux_size = 0;
 	if (aux_head > aux_tail) { // normal case
 		aux_size = aux_head - aux_tail;
-		uint8* aux_buf = (uint8*)cov->data + aux_tail;
+		uint8* aux_buf = (uint8*)cov->data_perf_aux + aux_tail;
 		memcpy(decoder->trace_input, aux_buf, aux_size);
 	} else { // wrap around case
 		aux_size = aux_mmap_size - aux_tail;
-		uint8* aux_buf = (uint8*)cov->data + aux_tail;
+		uint8* aux_buf = (uint8*)cov->data_perf_aux + aux_tail;
 		memcpy(decoder->trace_input, aux_buf, aux_size);
-		aux_buf = (uint8*)cov->data;
+		aux_buf = (uint8*)cov->data_perf_aux;
 		memcpy(decoder->trace_input + aux_size, aux_buf, aux_head);
 		aux_size += aux_head;
 	}
@@ -1184,11 +1187,23 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	}
 
 	decoder->decode(aux_size);
-	*signal_count_pos = decoder->get_signal_count();
-	debug("Signal count: %u\n", *signal_count_pos);
-	for (uint32_t i = 0; i < *signal_count_pos; i++) {
-		write_output(decoder->signal_data[i + 1]);
+
+	uint32_t cov_count = decoder->get_cov_count(), write_count = 0;
+	uint32_t *cov_data = (uint32_t*)(decoder->cov_data + 1);
+	uint32_t prev_pc = 0;
+	debug("Intel PT coverage count: %u\n", cov_count);
+	for (uint32_t i = 0; i < cov_count; i++) {
+		// debug("%x\n", cov_data[i]);
+		uint32_t sig = cov_data[i] & 0xFFFFF000;
+		sig |= (cov_data[i] & 0xFFF) ^ (hash(prev_pc & 0xFFF) & 0xFFF);
+		prev_pc = cov_data[i];
+		if (!dedup(sig, dedup_table_ipt)) {
+			write_output(sig);
+			write_count++;
+		}
 	}
+	*signal_count_pos = write_count;
+	
 	// reset coverage data and ioc
 	cover_reset_ipt(cov);
 	decoder->reset_signal();
@@ -1304,7 +1319,7 @@ void write_call_output(thread_t* th, bool finished)
 			write_coverage_signal<uint32>(&th->cov, signal_count_pos, cover_count_pos);
 	} 
 #if SYZ_USE_IPT
-	else if (cover_collection_required_ipt()) {
+	if (cover_collection_required_ipt()) {
 		if (is_kernel_64_bit)
 			write_coverage_ipt<uint64>(&th->decoder, &th->cov, signal_count_pos, cover_count_pos);
 		else
@@ -1507,13 +1522,10 @@ static uint32 hash(uint32 a)
 	return a;
 }
 
-const uint32 dedup_table_size = 8 << 10;
-uint32 dedup_table[dedup_table_size];
-
 // Poorman's best-effort hashmap-based deduplication.
 // The hashmap is global which means that we deduplicate across different calls.
 // This is OK because we are interested only in new signals.
-static bool dedup(uint32 sig)
+static bool dedup(uint32 sig, uint32* dedup_table)
 {
 	for (uint32 i = 0; i < 4; i++) {
 		uint32 pos = (sig + i) % dedup_table_size;
@@ -1913,4 +1925,16 @@ void debug_dump_data(const char* data, int length)
 	}
 	if (i % 16 != 0)
 		debug("\n");
+}
+
+#include <execinfo.h>
+
+void printStackTrace() {
+	void* callstack[128];
+	int i, frames = backtrace(callstack, 128);
+	char** strs = backtrace_symbols(callstack, frames);
+	for (i = 0; i < frames; ++i) {
+		debug("%s\n", strs[i]);
+	}
+	free(strs);
 }

@@ -139,6 +139,7 @@ static void segv_handler(int sig, siginfo_t* info, void* ctx)
 #endif
 	}
 	debug("SIGSEGV on %p, exiting\n", (void*)addr);
+	printStackTrace();
 	doexit(sig);
 }
 

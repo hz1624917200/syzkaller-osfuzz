@@ -109,8 +109,8 @@ libxdc_config_t libxdc_cfg = {
     .page_cache_fetch_opaque = (void*)fetch_memory_page,
     .bitmap_ptr = NULL,
     .bitmap_size = 0x10000,
-    .signal_ptr = NULL,
-    .signal_size = 0x100000,
+    .cov_ptr = NULL,
+    .cov_size = 0x100000,
     .align_psb = false,
 };
 
@@ -121,17 +121,17 @@ struct ipt_driver_t {
 
 struct ipt_decoder_t {
 	libxdc_t* libxdc;
-	uint32_t* signal_data;
+	uint32_t* cov_data;
 	uint8_t* trace_input;
 
 	void init()
 	{
 		// mmap signal
-		signal_data = (uint32_t*)mmap(NULL, libxdc_cfg.signal_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-		libxdc_cfg.signal_ptr = signal_data;
+		cov_data = (uint32_t*)mmap(NULL, libxdc_cfg.cov_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+		libxdc_cfg.cov_ptr = cov_data;
 		libxdc = libxdc_init(&libxdc_cfg);
 		if (libxdc == NULL) {
-			failmsg("libxdc init failed", "signal data: %p", signal_data);
+			failmsg("libxdc init failed", "cov data: %p", cov_data);
 		}
 		trace_input = (uint8_t*)mmap(NULL, _PERF_AUX_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	}
@@ -151,19 +151,19 @@ struct ipt_decoder_t {
 		}
 	}
 
-	inline uint32_t get_signal(uint32_t index)
+	inline uint32_t get_cov(uint32_t index)
 	{
-		return signal_data[index + 1];
+		return cov_data[index + 1];
 	}
 
 	void reset_signal()
 	{
-		*(uint32_t*)signal_data = 0;
+		*(uint32_t*)cov_data = 0;
 	}
 
-	uint32_t get_signal_count()
+	uint32_t get_cov_count()
 	{
-		return *(uint32_t*)signal_data;
+		return *(uint32_t*)cov_data;
 	}
 };
 
