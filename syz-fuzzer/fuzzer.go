@@ -53,6 +53,7 @@ type Fuzzer struct {
 	faultInjectionEnabled    bool
 	comparisonTracingEnabled bool
 	fetchRawCover            bool
+	diffCoverage             bool
 
 	corpusMu     sync.RWMutex
 	corpus       []*prog.Prog
@@ -290,6 +291,7 @@ func main() {
 		fetchRawCover:            *flagRawCover,
 		noMutate:                 r.NoMutateCalls,
 		stats:                    make([]uint64, StatCount),
+		diffCoverage:             *flagCoverDiff,
 		coverDiffMap:             coverDiffMap,
 	}
 	gateCallback := fuzzer.useBugFrames(r, *flagProcs)
@@ -541,9 +543,11 @@ func (fuzzer *Fuzzer) addInputToCorpus(p *prog.Prog, sign signal.Signal, sig has
 		fuzzer.corpus = append(fuzzer.corpus, p)
 		fuzzer.corpusHashes[sig] = struct{}{}
 		prio := int64(len(sign))
-		prio_extra := fuzzer.coverDiffMap.CountDiffPrio(cover)
-		prio += prio_extra
-		log.Logf(0, "add new input to corpus: %v, signals: %v, cover: %v, prio_extra: %v", sig.String(), len(sign), len(cover), prio_extra)
+		if fuzzer.diffCoverage {
+			prio_extra := fuzzer.coverDiffMap.CountDiffPrio(cover)
+			prio += prio_extra
+			log.Logf(0, "add new input to corpus: %v, signals: %v, cover: %v, prio_extra: %v", sig.String(), len(sign), len(cover), prio_extra)
+		}
 		if sign.Empty() {
 			prio = 1
 		}
