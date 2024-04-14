@@ -162,6 +162,11 @@ static void cover_open_ipt(cover_t* cov)
 	if (dup2(perf_fd, cov->ipt_fd) < 0)
 		fail("dup2 perf_fd failed");
 	close(perf_fd);
+	// set filter
+	// int ret = ipt_set_filter(cov->ipt_fd, ipt_filter);
+	// if (ret) {
+		// debug("set ipt filter, errno: %d\n", errno);
+	// }
 	// mmap for perf_event
 	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->ipt_fd, 0)) == MAP_FAILED)
 		fail("mmap perf_event failed");
@@ -203,6 +208,10 @@ static long perf_event_open(
 	return syscall(__NR_perf_event_open, hw_event, (uintptr_t)pid, (uintptr_t)cpu,
 		       (uintptr_t)group_fd, (uintptr_t)flags);
 }
+
+// static int ipt_set_filter(int fd, const char* filter) {
+// 	return ioctl(fd, PERF_EVENT_IOC_SET_FILTER, filter);
+// }
 #endif
 
 static void cover_collect(cover_t* cov)

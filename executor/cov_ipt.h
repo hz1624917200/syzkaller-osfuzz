@@ -17,16 +17,15 @@ extern "C" {
 #define SYZIPT_MMAP_BASE 0xffffffff80000000
 #define FILTERS                                       \
 	{                                             \
-		{0x1000, UINT64_MAX}, {0, 0}, {0, 0}, \
-		{                                     \
-			0, 0                          \
-		}                                     \
+		{0x1000, 0xffffffffff000000}, {0, 0}, {0, 0}, {0, 0} \
 	}
 
 typedef void* (*fetch_memory_page_t)(uint64_t, uint8_t*);
 
 void* fetch_memory_page(uint64_t addr, uint8_t* driver_buf);
 void* page_fetch_callback(void* memory_reader_func, uint64_t addr, bool* ret);
+
+// const char* ipt_filter = "filter 0xffffffffa0000000/0x10000000";
 
 typedef struct
 {
@@ -39,7 +38,7 @@ typedef struct
 
 #define perfIntelPtPerfType 8
 #define _PERF_EVENT_SIZE (1024 * 512)
-#define _PERF_AUX_SIZE (512 * 1024)
+#define _PERF_AUX_SIZE (128 * 1024 * 1024)
 
 /* Memory barriers */
 #define rmb() __asm__ __volatile__("" :: \
@@ -75,6 +74,7 @@ typedef struct
 
 static long perf_event_open(
     struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags);
+// static int ipt_set_filter(int fd, const char* filter);
 
 static perf_event_attr pe = {
     .type = perfIntelPtPerfType, // used
@@ -95,7 +95,7 @@ static perf_event_attr pe = {
     .comm = false,
     .freq = false,
     .inherit_stat = false,
-    .enable_on_exec = false,
+    .enable_on_exec = false,	// used
 };
 #endif		// GOOS_LINUX
 
@@ -110,7 +110,7 @@ libxdc_config_t libxdc_cfg = {
     .bitmap_ptr = NULL,
     .bitmap_size = 0x10000,
     .cov_ptr = NULL,
-    .cov_size = 0x100000,
+    .cov_size = 0x1000000,
     .align_psb = false,
 };
 
@@ -148,6 +148,9 @@ struct ipt_decoder_t {
 			printf("Decode success! Time taken in usec: %lu\n", time);
 		} else {
 			printf("Decode failed with result: %d\n", res);
+			if (res == decoder_page_fault) {
+				printf("Page fault addr: 0x%lx\n", libxdc_get_page_fault_addr(libxdc));
+			}
 		}
 	}
 

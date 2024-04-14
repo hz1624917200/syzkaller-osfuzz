@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 
 #if !GOOS_windows
 #include <unistd.h>
@@ -69,6 +70,7 @@ const int kCoverFd = kOutPipeFd - kMaxThreads;
 const int kExtraCoverFd = kCoverFd - 1;
 const int kBoKASANFd = kExtraCoverFd - kMaxThreads;
 const int kIptFd = kBoKASANFd - kMaxThreads;
+const int kIptDriverFd = kIptFd - 1;
 const int kMaxArgs = 9;
 const int kCoverSize = 256 << 10;
 const int kFailStatus = 67;
@@ -236,7 +238,7 @@ static char* input_data;
 
 const uint32 dedup_table_size = 8 << 10;
 uint32 dedup_table_kcov[dedup_table_size];
-uint32 dedup_table_ipt[dedup_table_size];
+// uint32 dedup_table_ipt[dedup_table_size];
 
 // Checksum kinds.
 static const uint64 arg_csum_inet = 0;
@@ -564,9 +566,13 @@ int main(int argc, char** argv)
 
 		// open global memory reader
 		flag_extra_coverage = false;
-		ipt_driver.driver_fd = open("/proc/syzipt", O_RDONLY);
-		if (ipt_driver.driver_fd < 0)
+		int fd = open("/proc/syzipt", O_RDONLY);
+		if (fd < 0)
 			fail("open /proc/syzipt failed");
+		if (dup2(fd, kIptDriverFd) < 0)
+			fail("dup2 /proc/syzipt failed");
+		close(fd);
+		ipt_driver.driver_fd = kIptDriverFd;
 		ipt_driver.memory_buf = (uint8_t*)mmap(NULL, (size_t)SYZIPT_MMAP_PAGES * SYZ_PAGE_SIZE, PROT_READ, MAP_SHARED, ipt_driver.driver_fd, 0);
 		if (!flag_coverage_kcov)
 			thread_count = iptDefaultCount;
@@ -822,8 +828,9 @@ void realloc_output_data()
 // execute_one executes program stored in input_data.
 void execute_one()
 {
-// for debug, waiting for gdb attach
-// raise(SIGSTOP);
+	timeval start_time, end_time;
+	gettimeofday(&start_time, NULL);
+
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
 	output_pos = output_data;
@@ -1043,6 +1050,9 @@ void execute_one()
 		sleep_ms(kSleepMs);
 		write_extra_output();
 	}
+
+	gettimeofday(&end_time, NULL);
+	debug("Execution time: %ld us\n", (end_time.tv_sec - start_time.tv_sec) * 1000000 + end_time.tv_usec - start_time.tv_usec);
 }
 
 thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint64 num_args, uint64* args, uint64* pos, call_props_t call_props)
@@ -1087,6 +1097,9 @@ thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint
 template <typename cover_data_t>
 void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
+	// Test profiling
+	struct timeval start, end;
+	gettimeofday(&start, NULL);
 	// Write out feedback signals.
 	// Currently it is code edges computed as xor of two subsequent basic block PCs.
 	cover_data_t* cover_data = (cover_data_t*)(cov->data + cov->data_offset);
@@ -1133,6 +1146,8 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 			write_output(cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
+	gettimeofday(&end, NULL);
+	debug("Kcov coverage write time: %ld us\n", (end.tv_sec - start.tv_sec) * 1000000 + end.tv_usec - start.tv_usec);
 }
 
 #if SYZ_USE_IPT
@@ -1142,6 +1157,9 @@ int dump_index = 0;
 template <typename cover_data_t>
 void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
+	// Test profiling
+	struct timeval start, end;
+	gettimeofday(&start, NULL);
 	// TODO: currently use kcov as coverage source
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
 	uint64 aux_head = header->aux_head;
@@ -1171,7 +1189,7 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	if (flag_coverage_intelpt_dump) {
 		// dump trace data to a file
 		char filename[40];
-		sprintf(filename, "/root/executor-test/trace_data_%d", dump_index++);
+		sprintf(filename, "/root/test_syzkaller/trace/trace_data_%d", dump_index++);
 		int fp = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fp < 0) {
 			fprintf(stderr, "Error: cannot open file %s\n", filename);
@@ -1207,6 +1225,8 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	// reset coverage data and ioc
 	cover_reset_ipt(cov);
 	decoder->reset_signal();
+	gettimeofday(&end, NULL);
+	debug("IPT coverage write time: %ld us\n", (end.tv_sec - start.tv_sec) * 1000000 + end.tv_usec - start.tv_usec);
 }
 #endif
 #endif // if SYZ_EXECUTOR_USES_SHMEM
