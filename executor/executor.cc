@@ -22,6 +22,8 @@
 
 #include "defs.h"
 
+#define PROFILING 0
+
 #if defined(__GNUC__)
 #define SYSCALLAPI
 #define NORETURN __attribute__((noreturn))
@@ -239,7 +241,7 @@ static char* input_data;
 
 const uint32 dedup_table_size = 8 << 10;
 uint32 dedup_table_kcov[dedup_table_size];
-// uint32 dedup_table_ipt[dedup_table_size];
+uint32 dedup_table_ipt[dedup_table_size];
 
 // Checksum kinds.
 static const uint64 arg_csum_inet = 0;
@@ -830,8 +832,10 @@ void realloc_output_data()
 // execute_one executes program stored in input_data.
 void execute_one()
 {
+#if PROFILING
 	timeval start_time, end_time;
 	gettimeofday(&start_time, NULL);
+#endif
 
 #if SYZ_EXECUTOR_USES_SHMEM
 	realloc_output_data();
@@ -1053,8 +1057,10 @@ void execute_one()
 		write_extra_output();
 	}
 
+#if PROFILING
 	gettimeofday(&end_time, NULL);
 	debug("Execution time: %ld us\n", (end_time.tv_sec - start_time.tv_sec) * 1000000 + end_time.tv_usec - start_time.tv_usec);
+#endif
 }
 
 thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint64 num_args, uint64* args, uint64* pos, call_props_t call_props)
@@ -1099,9 +1105,10 @@ thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint
 template <typename cover_data_t>
 void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
-	// Test profiling
+#if PROFILING
 	struct timeval start, end;
 	gettimeofday(&start, NULL);
+#endif
 	// Write out feedback signals.
 	// Currently it is code edges computed as xor of two subsequent basic block PCs.
 	cover_data_t* cover_data = (cover_data_t*)(cov->data + cov->data_offset);
@@ -1148,8 +1155,10 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 			write_output(cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
+#if PROFILING
 	gettimeofday(&end, NULL);
 	debug("Kcov coverage write time: %ld us\n", (end.tv_sec - start.tv_sec) * 1000000 + end.tv_usec - start.tv_usec);
+#endif
 }
 
 #if SYZ_USE_IPT
@@ -1159,9 +1168,10 @@ int dump_index = 0;
 template <typename cover_data_t>
 void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
-	// Test profiling
+#if PROFILING
 	struct timeval start, end;
 	gettimeofday(&start, NULL);
+#endif
 	// TODO: currently use kcov as coverage source
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
 	uint64 aux_head = header->aux_head;
@@ -1227,8 +1237,10 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	// reset coverage data and ioc
 	cover_reset_ipt(cov);
 	decoder->reset_signal();
+#if PROFILING
 	gettimeofday(&end, NULL);
 	debug("IPT coverage write time: %ld us\n", (end.tv_sec - start.tv_sec) * 1000000 + end.tv_usec - start.tv_usec);
+#endif
 }
 #endif
 #endif // if SYZ_EXECUTOR_USES_SHMEM
