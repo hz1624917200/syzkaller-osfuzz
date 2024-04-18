@@ -15,6 +15,7 @@ var (
 	flagExecutor   = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagThreaded   = flag.Bool("threaded", true, "use threaded mode in executor")
 	flagCoverKcov  = flag.Bool("cover", false, "collect feedback signals (coverage) from kcov")
+	flagCoverBlind = flag.Bool("cover_blind", false, "only collect coverage, do not use it for guiding")
 	flagCoverIpt   = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
 	flagBoKASAN    = flag.Bool("bokasan", false, "enable BoKASAN for sanitizer")
 	flagSandbox    = flag.String("sandbox", "none", "sandbox for fuzzing (none/setuid/namespace/android)")
@@ -37,6 +38,9 @@ func Default(target *prog.Target) (*ipc.Config, *ipc.ExecOpts, error) {
 	}
 	if *flagBoKASAN {
 		c.Flags |= ipc.FlagBoKASAN
+	}
+	if *flagCoverBlind {
+		c.Flags |= ipc.FlagCoverBlind
 	}
 	if *flagDebug {
 		c.Flags |= ipc.FlagDebug

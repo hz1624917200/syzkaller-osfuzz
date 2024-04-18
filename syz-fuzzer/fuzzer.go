@@ -55,7 +55,6 @@ type Fuzzer struct {
 	fetchRawCover            bool
 	diffCoverage             bool
 	coverBlind               bool
-	coverIpt                 bool
 
 	corpusMu     sync.RWMutex
 	corpus       []*prog.Prog
@@ -153,18 +152,16 @@ func main() {
 	debug.SetGCPercent(50)
 
 	var (
-		flagName       = flag.String("name", "test", "unique name for manager")
-		flagOS         = flag.String("os", runtime.GOOS, "target OS")
-		flagArch       = flag.String("arch", runtime.GOARCH, "target arch")
-		flagManager    = flag.String("manager", "", "manager rpc address")
-		flagProcs      = flag.Int("procs", 1, "number of parallel test processes")
-		flagOutput     = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
-		flagTest       = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
-		flagRunTest    = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
-		flagRawCover   = flag.Bool("raw_cover", false, "fetch raw coverage")
-		flagCoverDiff  = flag.Bool("cover_diff", false, "guiding with coverage of diff basic blocks")
-		flagCoverIpt   = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
-		flagCoverBlind = flag.Bool("cover_blind", false, "only collect coverage, do not use it for guiding")
+		flagName      = flag.String("name", "test", "unique name for manager")
+		flagOS        = flag.String("os", runtime.GOOS, "target OS")
+		flagArch      = flag.String("arch", runtime.GOARCH, "target arch")
+		flagManager   = flag.String("manager", "", "manager rpc address")
+		flagProcs     = flag.Int("procs", 1, "number of parallel test processes")
+		flagOutput    = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
+		flagTest      = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
+		flagRunTest   = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
+		flagRawCover  = flag.Bool("raw_cover", false, "fetch raw coverage")
+		flagCoverDiff = flag.Bool("cover_diff", false, "guiding with coverage of diff basic blocks")
 	)
 	defer tool.Init()()
 	outputType := parseOutputType(*flagOutput)
@@ -296,8 +293,6 @@ func main() {
 		noMutate:                 r.NoMutateCalls,
 		stats:                    make([]uint64, StatCount),
 		diffCoverage:             *flagCoverDiff,
-		coverBlind:               *flagCoverBlind,
-		coverIpt:                 *flagCoverIpt,
 		coverDiffMap:             coverDiffMap,
 	}
 	gateCallback := fuzzer.useBugFrames(r, *flagProcs)
@@ -615,7 +610,7 @@ func (fuzzer *Fuzzer) checkNewSignal(p *prog.Prog, info *ipc.ProgInfo) (calls []
 }
 
 func (fuzzer *Fuzzer) checkNewCallSignal(p *prog.Prog, info *ipc.CallInfo, call int) bool {
-	if fuzzer.coverIpt && len(info.Signal) < 15 { // Hyperparam: Intel PT signal threshold
+	if fuzzer.config.Flags&ipc.FlagIpt != 0 && len(info.Signal) < 15 { // Hyperparam: Intel PT signal threshold
 		return false
 	}
 	diff := fuzzer.maxSignal.DiffRaw(info.Signal, signalPrio(p, info, call))

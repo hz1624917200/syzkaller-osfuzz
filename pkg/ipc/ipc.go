@@ -46,7 +46,7 @@ const (
 	FlagEnableNicVF                              // setup NIC VF device
 	FlagIpt                                      // use Intel PT as signal source
 	FlagBoKASAN                                  // use Binary only KASAN for sanitizer
-	FlagBlind                                    // only collect coverage, no signal
+	FlagCoverBlind                               // only collect coverage, no signal
 )
 
 // Per-exec flags for ExecOpts.Flags.
@@ -295,7 +295,7 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 	}
 
 	info, err0 = env.parseOutput(p, opts)
-	if info != nil && ((env.config.Flags&FlagKcov == 0 && env.config.Flags&FlagIpt == 0) || env.config.Flags&FlagBlind != 0) {
+	if info != nil && ((env.config.Flags&FlagKcov == 0 && env.config.Flags&FlagIpt == 0) || env.config.Flags&FlagCoverBlind != 0) {
 		addFallbackSignal(p, info)
 	}
 	log.Logf(0, "info signals:\n") // TODO: debug
