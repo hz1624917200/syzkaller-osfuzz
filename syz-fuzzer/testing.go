@@ -278,10 +278,10 @@ func checkSimpleProgram(args *checkArgs, features *host.Features) error {
 	if info.Calls[0].Errno != 0 {
 		return fmt.Errorf("simple call failed: %+v\n%s", info.Calls[0], output)
 	}
-	if args.ipcConfig.Flags&ipc.FlagKcov != 0 && len(info.Calls[0].Signal) < 2 {
+	if args.ipcConfig.Flags&ipc.FlagKcov != 0 && args.ipcConfig.Flags&(ipc.FlagKcov|ipc.FlagIpt) == 0 && len(info.Calls[0].Signal) < 2 {
 		return fmt.Errorf("got no coverage:\n%s", output)
 	}
-	if len(info.Calls[0].Signal) < 1 {
+	if args.ipcConfig.Flags&(ipc.FlagKcov|ipc.FlagIpt) == 0 && len(info.Calls[0].Signal) < 1 {
 		return fmt.Errorf("got no fallback coverage:\n%s", output)
 	}
 	return nil

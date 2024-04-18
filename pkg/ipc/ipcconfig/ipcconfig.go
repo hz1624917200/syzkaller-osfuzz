@@ -14,7 +14,7 @@ import (
 var (
 	flagExecutor   = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagThreaded   = flag.Bool("threaded", true, "use threaded mode in executor")
-	flagCoverKcov  = flag.Bool("cover", false, "collect feedback signals (coverage)")
+	flagCoverKcov  = flag.Bool("cover", false, "collect feedback signals (coverage) from kcov")
 	flagCoverIpt   = flag.Bool("cover_ipt", false, "collect feedback signals (coverage) via Intel Processor Trace")
 	flagBoKASAN    = flag.Bool("bokasan", false, "enable BoKASAN for sanitizer")
 	flagSandbox    = flag.String("sandbox", "none", "sandbox for fuzzing (none/setuid/namespace/android)")

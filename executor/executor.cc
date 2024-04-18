@@ -171,6 +171,7 @@ static bool flag_coverage_kcov;
 static bool flag_coverage_intelpt; // is exclusive with flag_coverage_kcov
 static bool flag_coverage_intelpt_dump;
 static bool flag_bokasan;
+static bool flag_coverage_blind;
 static bool flag_sandbox_none;
 static bool flag_sandbox_setuid;
 static bool flag_sandbox_namespace;
@@ -689,9 +690,10 @@ void parse_env_flags(uint64 flags)
 	flag_delay_kcov_mmap = flags & (1 << 14);
 	flag_nic_vf = flags & (1 << 15);
 	flag_coverage_intelpt = flags & (1 << 16);
-	flag_bokasan = flags & (1 << 17);	// TODO: pending handle
-	debug("parsed env flags: debug=%d kcov=%d intelpt=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d\n",
-	      flag_debug, flag_coverage_kcov, flag_coverage_intelpt, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
+	flag_bokasan = flags & (1 << 17);
+	flag_coverage_blind = flags & (1 << 18);
+	debug("parsed env flags: debug=%d kcov=%d intelpt=%d blind=%d sandbox=%d/%d/%d/%d extra_cov=%d net=%d/%d/%d cgroups=%d close_fds=%d devlink_pci=%d vhci_injection=%d wifi=%d delay_kcov_mmap=%d nic_vf=%d\n",
+	      flag_debug, flag_coverage_kcov, flag_coverage_intelpt, flag_coverage_blind, flag_sandbox_none, flag_sandbox_setuid, flag_sandbox_namespace,
 	      flag_sandbox_android, flag_extra_coverage, flag_net_injection, flag_net_devices, flag_net_reset,
 	      flag_cgroups, flag_close_fds, flag_devlink_pci, flag_vhci_injection, flag_wifi, flag_delay_kcov_mmap,
 	      flag_nic_vf);
@@ -1103,7 +1105,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 	// Write out feedback signals.
 	// Currently it is code edges computed as xor of two subsequent basic block PCs.
 	cover_data_t* cover_data = (cover_data_t*)(cov->data + cov->data_offset);
-	if (flag_collect_signal && !flag_coverage_intelpt) {		// Intel PT coverage outputs signals in default
+	if (flag_collect_signal && !flag_coverage_intelpt && !flag_coverage_blind) {		// Intel PT coverage outputs signals in default
 		uint32 nsig = 0;
 		cover_data_t prev_pc = 0;
 		bool prev_filter = true;

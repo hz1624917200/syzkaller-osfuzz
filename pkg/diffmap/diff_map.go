@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	diff_BB_coverage_ratio       int64 = 2
+	diff_BB_coverage_ratio       int64 = 1
 	diff_BB_coverage_threshold         = 100
-	diff_func_coverage_ratio     int64 = 1
+	diff_func_coverage_ratio     int64 = 2
 	diff_func_coverage_threshold       = 1000
 )
 

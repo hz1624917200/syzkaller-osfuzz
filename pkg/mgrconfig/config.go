@@ -133,6 +133,8 @@ type Config struct {
 
 	// Use KCOV coverage (default: true).
 	Cover bool `json:"cover"`
+	// Only collect coverage, do not guide fuzzing (default: false).
+	CoverBlind bool `json:"cover_blind"`
 	// Use Intel PT coverage instead (default: false)
 	CoverIpt bool `json:"cover_ipt"`
 	// Use coverage filter. Supported types of filter:
