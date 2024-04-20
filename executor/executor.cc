@@ -23,6 +23,7 @@
 #include "defs.h"
 
 #define PROFILING 0
+#define DEBUG_COVERAGE 0
 
 #if defined(__GNUC__)
 #define SYSCALLAPI
@@ -1102,6 +1103,9 @@ thread_t* schedule_call(int call_index, int call_num, uint64 copyout_index, uint
 }
 
 #if SYZ_EXECUTOR_USES_SHMEM
+// TODO: debug var, delete this later
+int dump_index = 0;
+
 template <typename cover_data_t>
 void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
 {
@@ -1153,9 +1157,24 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		// True for x86_64 and arm64 without KASLR.
 		for (uint32 i = 0; i < cover_size; i++)
 			write_output(cover_data[i] + cov->pc_offset);
-		debug("------------------------\nkcov cover %d:\n", cover_size);
-		for (uint32 i = 0; i < cover_size; i++)
-			debug("%p\n", cover_data[i] + cov->pc_offset);
+#if DEBUG_COVERAGE
+		debug("kcov cover %d:\n", cover_size);
+
+		// dump coverage data to a file
+		char filename[40];
+		sprintf(filename, "/root/test_syzkaller/trace/coverage_data_kcov_%d", dump_index++);
+		FILE *fp = fopen(filename, "w");
+		if (fp == NULL) {
+			fprintf(stderr, "Error: cannot open file %s\n", filename);
+			return;
+		}
+		for (uint32_t i = 0; i < cover_size; i++) {
+			// print coverage in hex
+			fprintf(fp, "0x%llx\n", (unsigned long long)(cover_data[i] + cov->pc_offset));
+		}
+		fclose(fp);
+#endif
+
 		*cover_count_pos = cover_size;
 	}
 #if PROFILING
@@ -1165,8 +1184,6 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 }
 
 #if SYZ_USE_IPT
-// TODO: debug var, delete this later
-int dump_index = 0;
 
 template <typename cover_data_t>
 void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_count_pos, uint32* cover_count_pos)
@@ -1224,12 +1241,30 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	uint32_t cov_count = decoder->get_cov_count(), write_count = 0;
 	uint32_t *cov_data = (uint32_t*)(decoder->cov_data + 1);
 	uint32_t prev_pc = 0;
-	debug("------------------------\nIntel PT coverage count: %u\n", cov_count);
-	for (uint32_t i = 0; i < cov_count; i++) {
-		debug("%x\n", cov_data[i]);
+
+#if DEBUG_COVERAGE
+	debug("Intel PT coverage count: %u\n", cov_count);
+
+	// dump coverage data to a file
+	char filename[40];
+	sprintf(filename, "/root/test_syzkaller/trace/coverage_data_ipt_%d", dump_index++);
+	FILE *fp = fopen(filename, "w");
+	if (fp == NULL) {
+		fprintf(stderr, "Error: cannot open file %s\n", filename);
+		return;
 	}
+#endif
+
 	for (uint32_t i = 0; i < cov_count; i++) {
 		// debug("%x\n", cov_data[i]);
+		while (coverage_filter_ipt(cov_data[i])) {
+			i++;
+			if (i >= cov_count)
+				break;
+		}
+#if DEBUG_COVERAGE
+		fprintf(fp, "0xffffffff%x\n", cov_data[i]);
+#endif
 		uint32_t sig = cov_data[i] & 0xFFFFF000;
 		sig |= (cov_data[i] & 0xFFF) ^ (hash(prev_pc & 0xFFF) & 0xFFF);
 		prev_pc = cov_data[i];
@@ -1239,6 +1274,10 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 		}
 	}
 	*signal_count_pos = write_count;
+
+#if DEBUG_COVERAGE
+	fclose(fp);
+#endif
 	
 	// reset coverage data and ioc
 	cover_reset_ipt(cov);

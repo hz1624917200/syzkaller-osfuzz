@@ -12,6 +12,7 @@ extern "C" {
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#include "cov_ipt_filter.h"
 
 #define SYZIPT_MMAP_PAGES 512 * 1024
 #define SYZIPT_MMAP_BASE 0xffffffff80000000
