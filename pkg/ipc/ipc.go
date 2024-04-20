@@ -298,10 +298,10 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 	if info != nil && ((env.config.Flags&FlagKcov == 0 && env.config.Flags&FlagIpt == 0) || env.config.Flags&FlagCoverBlind != 0) {
 		addFallbackSignal(p, info)
 	}
-	log.Logf(0, "info signals:\n") // TODO: debug
-	for i, call := range info.Calls {
-		log.Logf(0, "call %v: %v\n", i, len(call.Signal))
-	}
+	// log.Logf(0, "info signals:\n")
+	// for i, call := range info.Calls {
+	// 	log.Logf(0, "call %v: %v\n", i, len(call.Signal))
+	// }
 	if !env.config.UseForkServer {
 		env.cmd.close()
 		env.cmd = nil

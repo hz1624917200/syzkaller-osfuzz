@@ -1153,6 +1153,9 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		// True for x86_64 and arm64 without KASLR.
 		for (uint32 i = 0; i < cover_size; i++)
 			write_output(cover_data[i] + cov->pc_offset);
+		debug("------------------------\nkcov cover %d:\n", cover_size);
+		for (uint32 i = 0; i < cover_size; i++)
+			debug("%p\n", cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
 #if PROFILING
@@ -1221,7 +1224,10 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 	uint32_t cov_count = decoder->get_cov_count(), write_count = 0;
 	uint32_t *cov_data = (uint32_t*)(decoder->cov_data + 1);
 	uint32_t prev_pc = 0;
-	debug("Intel PT coverage count: %u\n", cov_count);
+	debug("------------------------\nIntel PT coverage count: %u\n", cov_count);
+	for (uint32_t i = 0; i < cov_count; i++) {
+		debug("%x\n", cov_data[i]);
+	}
 	for (uint32_t i = 0; i < cov_count; i++) {
 		// debug("%x\n", cov_data[i]);
 		uint32_t sig = cov_data[i] & 0xFFFFF000;
