@@ -610,9 +610,10 @@ func (fuzzer *Fuzzer) checkNewSignal(p *prog.Prog, info *ipc.ProgInfo) (calls []
 }
 
 func (fuzzer *Fuzzer) checkNewCallSignal(p *prog.Prog, info *ipc.CallInfo, call int) bool {
-	if fuzzer.config.Flags&ipc.FlagIpt != 0 && len(info.Signal) < 15 { // Hyperparam: Intel PT signal threshold
-		return false
-	}
+	// TODO: hard threshold may have negative impact on coverage.
+	// if fuzzer.config.Flags&ipc.FlagIpt != 0 && len(info.Signal) < 15 { // Hyperparam: Intel PT signal threshold
+	// 	return false
+	// }
 	diff := fuzzer.maxSignal.DiffRaw(info.Signal, signalPrio(p, info, call))
 	if diff.Empty() {
 		return false

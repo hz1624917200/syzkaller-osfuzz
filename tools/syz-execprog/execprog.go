@@ -134,6 +134,8 @@ type Context struct {
 	repeat    int
 	pos       int
 	lastPrint time.Time
+	coverMu   sync.Mutex
+	cover     cover.Cover
 }
 
 func (ctx *Context) run(pid int) {
@@ -168,10 +170,12 @@ func (ctx *Context) execute(pid int, env *ipc.Env, p *prog.Prog, progIndex int) 
 	}
 	// This mimics the syz-fuzzer logic. This is important for reproduction.
 	for try := 0; ; try++ {
+		runtime.GC()
 		output, info, hanged, err := env.Exec(callOpts, p)
 		if err != nil && err != prog.ErrExecBufferTooSmall {
-			if try > 10 {
-				log.Fatalf("executor failed %v times: %v\n%s", try, err, output)
+			if try > 10 { // Skip this program
+				log.Logf(0, "executor failed %v times: %v\n%s", try, err, output)
+				break
 			}
 			// Don't print err/output in this case as it may contain "SYZFAIL" and we want to fail yet.
 			log.Logf(1, "executor failed, retrying")
@@ -186,6 +190,7 @@ func (ctx *Context) execute(pid int, env *ipc.Env, p *prog.Prog, progIndex int) 
 			if *flagHints {
 				ctx.printHints(p, info)
 			}
+			ctx.updateCoverage(info)
 			if *flagCoverFile != "" {
 				covFile := fmt.Sprintf("%s_prog%d", *flagCoverFile, progIndex)
 				ctx.dumpCoverage(covFile, info)
@@ -274,12 +279,20 @@ func (ctx *Context) dumpCoverage(coverFile string, info *ipc.ProgInfo) {
 	ctx.dumpCallCoverage(fmt.Sprintf("%v.extra", coverFile), &info.Extra)
 }
 
+func (ctx *Context) updateCoverage(info *ipc.ProgInfo) {
+	ctx.coverMu.Lock()
+	defer ctx.coverMu.Unlock()
+	for _, inf := range info.Calls {
+		ctx.cover.Merge(inf.Cover)
+	}
+}
+
 func (ctx *Context) getProgramIndex() int {
 	ctx.posMu.Lock()
 	idx := ctx.pos
 	ctx.pos++
-	if idx%len(ctx.progs) == 0 && time.Since(ctx.lastPrint) > 5*time.Second {
-		log.Logf(0, "executed programs: %v", idx)
+	if time.Since(ctx.lastPrint) > 5*time.Second {
+		log.Logf(0, "executed programs: %v; current coverage: %v", idx, len(ctx.cover))
 		ctx.lastPrint = time.Now()
 	}
 	ctx.posMu.Unlock()
