@@ -168,7 +168,7 @@ static void cover_open_ipt(cover_t* cov)
 		// debug("set ipt filter, errno: %d\n", errno);
 	// }
 	// mmap for perf_event
-	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED, cov->ipt_fd, 0)) == MAP_FAILED)
+	if ((cov->data_perf_event = (uint8_t*)mmap(NULL, _PERF_EVENT_SIZE + getpagesize(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_NORESERVE, cov->ipt_fd, 0)) == MAP_FAILED)
 		fail("mmap perf_event failed");
 
 	struct perf_event_mmap_page* header = (struct perf_event_mmap_page*)cov->data_perf_event;
@@ -176,7 +176,7 @@ static void cover_open_ipt(cover_t* cov)
 	debug("perf_event mmap page size: %llu\n", header->data_size);
 	header->aux_offset = header->data_offset + header->data_size;
 	header->aux_size = _PERF_AUX_SIZE;
-	if ((cov->data_perf_aux = (char*)mmap(NULL, header->aux_size, PROT_READ, MAP_SHARED, cov->ipt_fd, header->aux_offset)) == MAP_FAILED)
+	if ((cov->data_perf_aux = (char*)mmap(NULL, header->aux_size, PROT_READ, MAP_SHARED | MAP_POPULATE, cov->ipt_fd, header->aux_offset)) == MAP_FAILED)
 		fail("mmap perf_event aux failed"); // TODO: add error handling
 	debug("intel PT cover open success\n");
 }

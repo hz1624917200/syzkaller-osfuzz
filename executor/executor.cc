@@ -1160,8 +1160,6 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		for (uint32 i = 0; i < cover_size; i++)
 			write_output(cover_data[i] + cov->pc_offset);
 #if DEBUG_COVERAGE
-		debug("kcov cover %d:\n", cover_size);
-
 		// dump coverage data to a file
 		char filename[40];
 		sprintf(filename, "/root/test_syzkaller/trace/coverage_data_kcov_%d", dump_index++);
@@ -1263,6 +1261,9 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 			i++;
 			if (i >= cov_count)
 				break;
+		}
+		if (__glibc_unlikely(cov_data[i] == COV_IPT_EOT)) {
+			break;
 		}
 #if DEBUG_COVERAGE
 		fprintf(fp, "0xffffffff%x\n", cov_data[i]);
