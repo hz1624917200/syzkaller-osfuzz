@@ -10,7 +10,7 @@ static uint32_t COV_IPT_FILTER[][2] = {
 	{0x81E29160, 0x81E29C20},		// stack_depot
 };
 
-static const uint32_t COV_IPT_EOT = 0x81007414;		// end of trace
+static const uint32_t COV_IPT_END = 0x81007414, COV_IPT_START = 0x810082dd;		// end of trace
 
 // @return: true if the addr is filtered out
 bool coverage_filter_ipt(uint32_t addr) {
