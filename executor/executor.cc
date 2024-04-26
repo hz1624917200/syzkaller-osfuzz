@@ -1267,7 +1267,7 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 			if (cov_index >= cov_count)
 				break;
 		}
-		if (__glibc_unlikely(cov_data[cov_index] == COV_IPT_END)) {
+		// if (__glibc_unlikely(cov_data[cov_index] == COV_IPT_END)) {
 		// 	break;
 		// }
 #if DEBUG_COVERAGE
