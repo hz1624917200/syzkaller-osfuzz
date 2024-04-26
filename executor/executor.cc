@@ -1256,10 +1256,10 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 #endif
 	uint32_t cov_index = 0;
 	while (cov_index < cov_count && cov_data[cov_index++] != COV_IPT_START);
-	if (cov_index >= cov_count) {	// start not found
-		cov_index = 0;
-		return;
-	}
+	// if (cov_index >= cov_count) {	// start not found
+	// 	cov_index = 0;
+	// 	return;
+	// }
 	for (; cov_index < cov_count; cov_index++) {
 		// debug("%x\n", cov_data[i]);
 		while (cov_index < cov_count && coverage_filter_ipt(cov_data[cov_index])) {
@@ -1268,8 +1268,8 @@ void write_coverage_ipt(ipt_decoder_t* decoder, cover_t* cov, uint32* signal_cou
 				break;
 		}
 		if (__glibc_unlikely(cov_data[cov_index] == COV_IPT_END)) {
-			break;
-		}
+		// 	break;
+		// }
 #if DEBUG_COVERAGE
 		fprintf(fp, "0xffffffff%x\n", cov_data[cov_index]);
 #endif
