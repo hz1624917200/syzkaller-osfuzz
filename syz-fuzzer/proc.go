@@ -134,11 +134,13 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 			continue
 		}
 		thisSignal, thisCover := getSignalAndCover(item.p, info, item.call)
+		if proc.fuzzer.diffCoverOnly {
+			thisCover = proc.fuzzer.coverDiffMap.FilterCover(thisCover)
+		}
 		if len(rawCover) == 0 && proc.fuzzer.fetchRawCover {
 			rawCover = append([]uint32{}, thisCover...)
 		}
 		newSignal = newSignal.Intersection(thisSignal)
-		log.Logf(0, "---------------------- New signal: %v -------------------------", newSignal.Len())
 		// Without !minimized check manager starts losing some considerable amount
 		// of coverage after each restart. Mechanics of this are not completely clear.
 		if newSignal.Empty() && item.flags&ProgMinimized == 0 {
@@ -146,6 +148,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 		}
 		inputCover.Merge(thisCover)
 	}
+	log.Logf(0, "---------------------- New signal: %v; New cover: %v -------------------------", newSignal.Len(), len(inputCover))
 	if item.flags&ProgMinimized == 0 {
 		item.p, item.call = prog.Minimize(item.p, item.call, false,
 			func(p1 *prog.Prog, call1 int) bool {

@@ -1,5 +1,7 @@
 package bitmap
 
+import "github.com/google/syzkaller/pkg/log"
+
 type Bitmap struct {
 	data   []byte
 	size   uint32
@@ -57,7 +59,8 @@ func (b *Bitmap) SetRegion(start uint32, end uint32) {
 
 func (b *Bitmap) Test(pos uint32) bool {
 	if pos < 0x81000000 {
-		panic("Error pos < 0x81000000")
+		log.Logf(0, "Error pos < 0x81000000: %v\n", pos)
+		panic("Error pos < 0x81000000\n")
 	}
 	if pos < b.offset || pos >= b.offset+b.size {
 		return false
@@ -68,4 +71,8 @@ func (b *Bitmap) Test(pos uint32) bool {
 
 func (b *Bitmap) Size() uint32 {
 	return b.size
+}
+
+func (b *Bitmap) Offset() uint32 {
+	return b.offset
 }

@@ -54,7 +54,7 @@ type Fuzzer struct {
 	comparisonTracingEnabled bool
 	fetchRawCover            bool
 	diffCoverage             bool
-	coverBlind               bool
+	diffCoverOnly            bool // only stat coverage of diff parts
 
 	corpusMu     sync.RWMutex
 	corpus       []*prog.Prog
@@ -152,16 +152,17 @@ func main() {
 	debug.SetGCPercent(50)
 
 	var (
-		flagName      = flag.String("name", "test", "unique name for manager")
-		flagOS        = flag.String("os", runtime.GOOS, "target OS")
-		flagArch      = flag.String("arch", runtime.GOARCH, "target arch")
-		flagManager   = flag.String("manager", "", "manager rpc address")
-		flagProcs     = flag.Int("procs", 1, "number of parallel test processes")
-		flagOutput    = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
-		flagTest      = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
-		flagRunTest   = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
-		flagRawCover  = flag.Bool("raw_cover", false, "fetch raw coverage")
-		flagCoverDiff = flag.Bool("cover_diff", false, "guiding with coverage of diff basic blocks")
+		flagName          = flag.String("name", "test", "unique name for manager")
+		flagOS            = flag.String("os", runtime.GOOS, "target OS")
+		flagArch          = flag.String("arch", runtime.GOARCH, "target arch")
+		flagManager       = flag.String("manager", "", "manager rpc address")
+		flagProcs         = flag.Int("procs", 1, "number of parallel test processes")
+		flagOutput        = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
+		flagTest          = flag.Bool("test", false, "enable image testing mode")      // used by syz-ci
+		flagRunTest       = flag.Bool("runtest", false, "enable program testing mode") // used by pkg/runtest
+		flagRawCover      = flag.Bool("raw_cover", false, "fetch raw coverage")
+		flagCoverDiff     = flag.Bool("cover_diff", false, "guiding with coverage of diff basic blocks")
+		flagDiffCoverOnly = flag.Bool("diff_cover_only", false, "only stat coverage of diff parts")
 	)
 	defer tool.Init()()
 	outputType := parseOutputType(*flagOutput)
@@ -271,7 +272,7 @@ func main() {
 	needPoll <- struct{}{}
 
 	coverDiffMap := (*diffmap.DiffMap)(nil)
-	if *flagCoverDiff {
+	if *flagCoverDiff || *flagDiffCoverOnly {
 		coverDiffMap = diffmap.Init()
 
 	}
@@ -293,6 +294,7 @@ func main() {
 		noMutate:                 r.NoMutateCalls,
 		stats:                    make([]uint64, StatCount),
 		diffCoverage:             *flagCoverDiff,
+		diffCoverOnly:            *flagDiffCoverOnly,
 		coverDiffMap:             coverDiffMap,
 	}
 	gateCallback := fuzzer.useBugFrames(r, *flagProcs)

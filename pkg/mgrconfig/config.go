@@ -148,7 +148,8 @@ type Config struct {
 	CovFilter covFilterCfg `json:"cover_filter,omitempty"`
 	// Use kernel differential fuzzing (default: false).
 	// Guiding with coverage of diff basic blocks
-	CoverDiff bool `json:"cover_diff"`
+	CoverDiff     bool `json:"cover_diff"`
+	DiffCoverOnly bool `json:"diff_cover_only"`
 
 	// Use BoKASAN as the sanitizer in Binary-only kernel
 	BoKASAN bool `json:"bokasan"`
